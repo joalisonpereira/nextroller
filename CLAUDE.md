@@ -49,7 +49,7 @@ examples/next-app/  # app Next de exemplo consumindo a lib
 
 - **Não brigar com o roteamento do Next.** Usuário cria um único `app/api/[[...path]]/route.ts`. Toda integração com o Next fica isolada em `createHandler()`.
 - **Rotas moram no controller.** `static route` é a única fonte de verdade das rotas de um controller.
-- **Tipagem em dois pontos.** `Route<T>` na anotação do `static route` checa conteúdo (verbos, paths, chaves de `actions`) na declaração. `defineController` exige a presença e o formato de `route` (TypeScript não exige membros `static` via `implements`), tipado contra `ControllerClass`.
+- **Tipagem concentrada no `defineController`.** TypeScript não exige membros `static` via `implements`; a checagem acontece no parâmetro de `defineController`, tipado contra `ControllerClass` + `CheckActions`. `static route` é declarado com `as const` para preservar os literais.
 - **Sem estado global.** Nenhum singleton na lib; cada `createHandler()` monta seu próprio app Hono.
 - **`HttpContext` é objeto, não classe.** Permite desestruturar (`{ params, validate }`) sem perder `this`.
 - **O retorno do controller define a resposta:**
@@ -72,21 +72,10 @@ export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Path = `/${string}`;
 export type ActionDef = readonly [Method | readonly Method[], Path]; // ["GET", "/me"] ou [["PUT", "PATCH"], "/:id"]
 
-// métodos públicos da instância
-type Methods<T> = { [K in keyof T]: T[K] extends (...a: any[]) => any ? K : never }[keyof T] & string;
-
-// tipo usado pelo usuário na anotação: static route: Route<UsersController> = { ... }
-export interface Route<T> {
+export interface RouteConfig {
   readonly prefix: Path;                                       // prefixo de todas as rotas do controller
   readonly resource?: boolean;                                 // gera CRUD para index/show/store/update/destroy que existirem
-  readonly actions?: { readonly [K in Methods<T>]?: ActionDef }; // { metodo: [verbo, path] }
-}
-
-// forma "apagada", usada internamente e no constraint
-interface RouteConfig {
-  readonly prefix: Path;
-  readonly resource?: boolean;
-  readonly actions?: { readonly [method: string]: ActionDef | undefined };
+  readonly actions?: { readonly [method: string]: ActionDef }; // { metodo: [verbo, path] }
 }
 
 export interface ControllerClass {
@@ -94,14 +83,29 @@ export interface ControllerClass {
   readonly route: RouteConfig;
 }
 
-export function defineController<C extends ControllerClass>(controller: C): C;
+export function defineController<C extends ControllerClass>(
+  controller: C & CheckActions<C>,
+): C;
+```
+
+Tipos auxiliares (internos):
+
+```ts
+// métodos públicos da instância
+type Methods<T> = { [K in keyof T]: T[K] extends (...a: any[]) => any ? K : never }[keyof T] & string;
+type ActionsOf<C> = C extends { route: { actions: infer A } } ? A : {};
+
+// chave de `actions` que não é método público vira `never` → erro de compilação
+type CheckActions<C extends ControllerClass> = {
+  route: { actions?: { [K in Exclude<keyof ActionsOf<C>, Methods<InstanceType<C>>>]: never } };
+};
 ```
 
 Regras de `route`:
 
-- **Declarar sempre com anotação genérica da própria classe:** `static route: Route<UsersController> = { ... }`. A anotação dá tipo contextual ao literal: tuplas e verbos são checados ali, e chave de `actions` que não é método público vira erro de excess property na própria declaração.
-- Sem anotação, o TS alarga `["GET", "/me"]` para `string[]` e `"/users"` para `string`, e o `defineController` rejeita (erro de compilação). Esquecer a anotação nunca passa silenciosamente.
-- `Route` sem genérico não é suportado: perderia a checagem das chaves de `actions`.
+- **`static route = { ... } as const` é obrigatório.** Sem `as const`, o TS alarga `["GET", "/me"]` para `string[]` e `"/users"` para `string`, e o `defineController` rejeita (erro de compilação). Esquecer o `as const` nunca passa silenciosamente.
+- Ações são tuplas `[verbo, path]`; vários verbos: `[["PUT", "PATCH"], path]`.
+- `as const` preserva paths literais em `actions` (base para inferir `params` no futuro).
 - `actions` sobrescreve `resource` quando o mesmo método aparece nos dois.
 - Métodos `private` não podem ser rota (ficam fora de `keyof`). Helpers internos do controller devem ser `private`.
 - Paths de `actions` são relativos ao `prefix`.
@@ -111,9 +115,9 @@ Onde cada erro é pego:
 | erro                                                     | quando                                 |
 | -------------------------------------------------------- | -------------------------------------- |
 | `static route` ausente ou sem `prefix`                   | compile time (`defineController`)      |
-| anotação `Route<...>` esquecida                          | compile time (`defineController`)      |
-| chave de `actions` não é método público                  | compile time, na declaração (`Route<T>`) |
-| verbo inválido (`["GT", "/me"]`), path sem `/` inicial   | compile time, na declaração (`Route<T>`) |
+| `as const` esquecido                                     | compile time (`defineController`)      |
+| chave de `actions` não é método público                  | compile time (`CheckActions`)          |
+| verbo inválido (`["GT", "/me"]`), path/prefix sem `/` inicial | compile time (`defineController`) |
 | rota duplicada entre controllers                         | runtime, no `createHandler`            |
 
 `defineController` também valida o formato em runtime (barato; cobre consumidores JS e casts `any`).
@@ -155,18 +159,30 @@ createContext(c: Context) => {
   params,                    // Record<string, string>
   query,                     // Record<string, string>
   headers,                   // Record<string, string>
-  validate(schema, source?), // source: "body" (default) | "query" | "params"; retorna z.infer<S>; lança ZodError
+  validate: {
+    body(schema),            // Promise<z.infer<S>>; corpo JSON
+    query(schema),           // z.infer<S>; query string
+    params(schema),          // z.infer<S>; parâmetros do path
+    headers(schema),         // z.infer<S>; headers (chaves em minúsculo)
+  },
   response: { ok, created, noContent, notFound, status },
 }
 export type HttpContext = ReturnType<typeof createContext>;
 ```
 
-Body JSON inválido/ausente vira `{}` antes do parse → Zod reporta 422.
+`validate.*`:
+
+- Todos fazem `schema.parse(...)` e lançam `ZodError` (→ 422 no handler central).
+- Só `body` é assíncrono (lê o stream). `query`, `params` e `headers` são síncronos.
+- Body JSON inválido/ausente vira `{}` antes do parse → Zod reporta 422.
+- Valores de `query`, `params` e `headers` chegam como string: usar `z.coerce` para número/boolean.
+- `query` com chave repetida (`?tag=a&tag=b`) entrega `string[]` para aquela chave; chave única entrega `string`.
+- Uma origem por chamada; para validar body e query, duas chamadas.
 
 `request`:
 
 - Mesma instância recebida pelo route handler (`c.req.raw`). Lib tipa como `Request` para não depender de `next`; usuário faz `request as NextRequest` se precisar de `nextUrl`/`cookies`.
-- Body é stream de leitura única. Corpo JSON deve ser lido via `validate()` (usa cache de body do Hono). Ler `request.json()` direto consome o stream e quebra um `validate()` posterior. Usar `request` para metadados (`url`, `method`, `signal`) ou leituras não-JSON (`formData()`, stream).
+- Body é stream de leitura única. Corpo JSON deve ser lido via `validate.body()` (usa cache de body do Hono). Ler `request.json()` direto consome o stream e quebra um `validate.body()` posterior. Usar `request` para metadados (`url`, `method`, `signal`) ou leituras não-JSON (`formData()`, stream).
 
 ### Mapeamento de erros (`onError` em `createHandler()`)
 
@@ -220,24 +236,25 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
 `app/api/modules/users/users_controller.ts`:
 
 ```ts
-import { defineController, type HttpContext, type Route } from "nextroller";
+import { defineController, type HttpContext } from "nextroller";
 import { UsersService } from "./users_service";
 import { createUser, updateUser, listUsers } from "./users_validator";
 
 class UsersController {
-  static route: Route<UsersController> = {
+  static route = {
     prefix: "/users",
     resource: true,
     actions: {
       me: ["GET", "/me"],
       activate: ["POST", "/:id/activate"],
+      archive: [["PUT", "PATCH"], "/:id/archive"],
     },
-  };
+  } as const;
 
   constructor(private users = new UsersService()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = await validate(listUsers, "query");
+    const { page } = validate.query(listUsers);
     return this.users.list(page);
   }
 
@@ -247,12 +264,12 @@ class UsersController {
   }
 
   async store({ validate, response }: HttpContext) {
-    const data = await validate(createUser);
+    const data = await validate.body(createUser);
     return response.created(await this.users.create(data));
   }
 
   async update({ params, validate }: HttpContext) {
-    return this.users.update(params.id, await validate(updateUser));
+    return this.users.update(params.id, await validate.body(updateUser));
   }
 
   async destroy({ params }: HttpContext) {
@@ -265,6 +282,10 @@ class UsersController {
 
   async activate({ params }: HttpContext) {
     await this.users.activate(params.id);
+  }
+
+  async archive({ params }: HttpContext) {
+    await this.users.archive(params.id);
   }
 }
 
@@ -289,7 +310,7 @@ export const listUsers = z.object({
 ## Em aberto
 
 - **Descoberta automática de controllers:** script de codegen (e/ou plugin `withNextroller` no `next.config`) que varre `app/api/modules/*/*_controller.ts` e gera a lista passada a `controllers`. Seria açúcar opcional sobre a lista explícita. `require.context` e leitura do disco em runtime descartados (Turbopack / bundle serverless).
-- **`params` tipado pelo path:** genérico opcional `HttpContext<"/:id/activate">` para tipar `params.id`. A anotação `Route<T>` não preserva o path literal, então inferir `params` a partir do `route` não é possível com esse modelo; o genérico em `HttpContext` seria manual.
+- **`params` tipado pelo path:** genérico opcional `HttpContext<"/:id/activate">` para tipar `params.id`. Como `as const` preserva o path literal em `actions`, há base para inferir isso a partir do `route` no futuro.
 - **Listagem de rotas:** comando `nextroller routes` imprimindo verbo, path e controller (compensa a falta de visão central).
 
 ## Convenções de código
