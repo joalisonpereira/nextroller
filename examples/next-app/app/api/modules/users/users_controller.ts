@@ -22,7 +22,7 @@ class UsersController {
 
   async show({ params, response }: HttpContext) {
     const user = await this.users.find(params.id);
-    return user ?? response.notFound("Usuário não encontrado");
+    return user ?? response.notFound("User not found");
   }
 
   async store({ validate, response }: HttpContext) {

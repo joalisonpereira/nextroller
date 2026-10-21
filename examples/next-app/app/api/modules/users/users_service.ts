@@ -33,7 +33,7 @@ export class UsersService {
     const token = authorization?.replace(/^Bearer /, "");
     const user = [...users.values()].find((u) => u.token === token);
     if (!user) {
-      throw new HTTPException(401, { message: "Não autenticado" });
+      throw new HTTPException(401, { message: "Unauthenticated" });
     }
     return user;
   }
@@ -73,7 +73,7 @@ export class UsersService {
   private require(id: string) {
     const user = users.get(id);
     if (!user) {
-      throw new HTTPException(404, { message: "Usuário não encontrado" });
+      throw new HTTPException(404, { message: "User not found" });
     }
     return user;
   }

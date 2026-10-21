@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "yarn --cwd ../.. build && yarn --cwd ../.. pack --filename nextroller.tgz && rm -rf node_modules/nextroller && mkdir -p node_modules/nextroller && tar xzf nextroller.tgz -C node_modules/nextroller --strip-components=1",
+    "setup": "yarn --cwd ../.. build && yarn --cwd ../.. pack --filename nextroller.tgz && rm -rf node_modules/nextroller && mkdir -p node_modules/nextroller && tar xzf nextroller.tgz -C node_modules/nextroller --strip-components=1 && chmod +x node_modules/nextroller/dist/cli/index.js && mkdir -p node_modules/.bin && ln -sf ../nextroller/dist/cli/index.js node_modules/.bin/nextroller",
     "postinstall": "yarn setup",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
   },
   "dependencies": {
+    "chalk": "^6.0.1",
     "hono": "^4.13.13",
     "next": "^16.4.2",
     "react": "^19.3.1",
