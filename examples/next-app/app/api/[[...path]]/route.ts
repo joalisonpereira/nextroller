@@ -1,7 +1,7 @@
 import { createHandler, RouteNotFoundError } from "nextroller";
-import UsersController from "@/app/api/modules/users/users_controller";
-import ProductsController from "@/app/api/modules/products/products_controller";
-import { UsersService } from "@/app/api/modules/users/users_service";
+import UsersController from "@/app/api/modules/users/controller";
+import ProductsController from "@/app/api/modules/products/controller";
+import { UsersService } from "@/app/api/modules/users/service";
 
 export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
   basePath: "/api",

@@ -408,9 +408,9 @@ app/
       route.ts                  # único route handler; chama createHandler
     modules/
       <modulo>/
-        <modulo>_controller.ts  # class + static route + export default defineController(...)
-        <modulo>_service.ts     # lógica de negócio
-        <modulo>_validator.ts   # schemas Zod
+        controller.ts           # class + static route + export default defineController(...)
+        service.ts              # lógica de negócio
+        validator.ts            # schemas Zod
 ```
 
 Regras:
@@ -419,17 +419,18 @@ Regras:
 - **`modules/` fica em `app/api/modules/`.** Não na raiz do projeto, não dentro de `[[...path]]/`.
 - Controller, service e validator de um recurso moram juntos em `app/api/modules/<modulo>/`. Nenhuma outra pasta é criada para eles.
 - Nenhum arquivo de `modules/` vira rota no Next (no App Router só `route.ts`/`page.tsx` são roteáveis). Nunca criar `route.ts` dentro de `modules/`.
-- Nome do módulo no plural, `snake_case` (`users`, `order_items`). Arquivos prefixados com o nome do módulo.
+- Nome do módulo no plural, `snake_case` (`users`, `order_items`). O nome fica só na pasta: os arquivos se chamam sempre `controller.ts`, `service.ts` e `validator.ts`, sem prefixo.
+- Os nomes das classes carregam o módulo (`UsersController`, `UsersService`), já que o arquivo não carrega.
 - Dentro do módulo, imports relativos. Fora dele, alias `@/app/api/modules/...`.
 - Módulo não importa controller de outro módulo. Reuso via service.
-- Auth no app: `authenticate` passado no `route.ts`, delegando a um service (ex.: `UsersService.findByToken`). O `declare module "nextroller" { interface Register { auth: User } }` fica no service que define o tipo `User` (ex.: `users_service.ts`). Nenhuma pasta nova para auth.
+- Auth no app: `authenticate` passado no `route.ts`, delegando a um service (ex.: `UsersService.findByToken`). O `declare module "nextroller" { interface Register { auth: User } }` fica no service que define o tipo `User` (ex.: `users/service.ts`). Nenhuma pasta nova para auth.
 
 `app/api/[[...path]]/route.ts`:
 
 ```ts
 import { createHandler } from "nextroller";
-import UsersController from "@/app/api/modules/users/users_controller";
-import { UsersService } from "@/app/api/modules/users/users_service";
+import UsersController from "@/app/api/modules/users/controller";
+import { UsersService } from "@/app/api/modules/users/service";
 
 export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
   basePath: "/api",
@@ -440,12 +441,12 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
 });
 ```
 
-`app/api/modules/users/users_controller.ts`:
+`app/api/modules/users/controller.ts`:
 
 ```ts
 import { defineController, type HttpContext, type Route } from "nextroller";
-import { UsersService } from "./users_service";
-import { createUser, updateUser, listUsers } from "./users_validator";
+import { UsersService } from "./service";
+import { createUser, updateUser, listUsers } from "./validator";
 
 class UsersController {
   static route: Route<UsersController> = {
@@ -501,7 +502,7 @@ class UsersController {
 export default defineController(UsersController);
 ```
 
-`app/api/modules/users/users_validator.ts`:
+`app/api/modules/users/validator.ts`:
 
 ```ts
 import { z } from "zod";
@@ -530,9 +531,9 @@ Gera:
 
 ```
 app/api/modules/order_items/
-  order_items_controller.ts
-  order_items_service.ts
-  order_items_validator.ts
+  controller.ts
+  service.ts
+  validator.ts
 ```
 
 Critérios:
@@ -544,17 +545,18 @@ Critérios:
   ```
   ✔ Module order_items created
 
-    CREATE  app/api/modules/order_items/order_items_controller.ts
-    CREATE  app/api/modules/order_items/order_items_service.ts
-    CREATE  app/api/modules/order_items/order_items_validator.ts
+    CREATE  app/api/modules/order_items/controller.ts
+    CREATE  app/api/modules/order_items/service.ts
+    CREATE  app/api/modules/order_items/validator.ts
 
   Next step: register the controller in app/api/[[...path]]/route.ts
 
-      import OrderItemsController from "@/app/api/modules/order_items/order_items_controller";
+      import OrderItemsController from "@/app/api/modules/order_items/controller";
 
       controllers: [..., OrderItemsController]
   ```
 - **Nomes gerados:**
+  - arquivos `controller.ts`, `service.ts` e `validator.ts` (sem prefixo; o módulo é a pasta);
   - classe `OrderItemsController` e serviço `OrderItemsService` (PascalCase do nome);
   - `prefix` `"/order-items"` (kebab-case do nome);
   - schemas `createSchema`, `updateSchema` e `listSchema`, que o usuário renomeia à vontade.
@@ -569,7 +571,7 @@ Critérios:
 
 ## Em aberto
 
-- **Descoberta automática de controllers:** script de codegen (e/ou plugin `withNextroller` no `next.config`) que varre `app/api/modules/*/*_controller.ts` e gera a lista passada a `controllers`. Seria açúcar opcional sobre a lista explícita. `require.context` e leitura do disco em runtime descartados (Turbopack / bundle serverless).
+- **Descoberta automática de controllers:** script de codegen (e/ou plugin `withNextroller` no `next.config`) que varre `app/api/modules/*/controller.ts` e gera a lista passada a `controllers`. Seria açúcar opcional sobre a lista explícita. `require.context` e leitura do disco em runtime descartados (Turbopack / bundle serverless).
 - **Checar `HttpContext<P>` contra o `route`:** hoje o genérico é declarado à mão e não é comparado com o path da action. Como `as const` preserva o path literal em `actions`, o `defineController` poderia rejeitar um método cujo `HttpContext<P>` declare params ausentes no path real (`prefix` + path da action).
 - **`ctx.auth` opcional em ação pública:** hoje `auth` é tipado como não opcional em todas as ações. `defineController` poderia derivar por ação (`auth` menos `public`) e tipar `auth` como `undefined` nas públicas.
 - **Listagem de rotas:** comando `nextroller routes` (no mesmo bin do `make:module`) imprimindo verbo, path, controller e se exige auth (e se tem regra customizada) (compensa a falta de visão central).

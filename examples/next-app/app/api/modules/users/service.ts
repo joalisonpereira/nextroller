@@ -1,5 +1,5 @@
 import { HTTPException } from "nextroller";
-import type { CreateUser, UpdateUser } from "./users_validator";
+import type { CreateUser, UpdateUser } from "./validator";
 
 export interface User {
   id: string;

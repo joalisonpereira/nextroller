@@ -1,6 +1,6 @@
 import { defineController, type HttpContext, type Route } from "nextroller";
-import { UsersService } from "./users_service";
-import { createUser, updateUser, listUsers } from "./users_validator";
+import { UsersService } from "./service";
+import { createUser, updateUser, listUsers } from "./validator";
 
 class UsersController {
   static route: Route<UsersController> = {

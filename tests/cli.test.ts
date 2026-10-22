@@ -60,21 +60,21 @@ describe("nextroller make:module", () => {
 
     const dir = path.join(modulesDir(), "order_items");
     expect(fs.readdirSync(dir).sort()).toEqual([
-      "order_items_controller.ts",
-      "order_items_service.ts",
-      "order_items_validator.ts",
+      "controller.ts",
+      "service.ts",
+      "validator.ts",
     ]);
     expect(stdout).toContain("✔ Module order_items created");
     expect(stdout).toContain(
-      `CREATE  ${path.join("app", "api", "modules", "order_items", "order_items_controller.ts")}`,
+      `CREATE  ${path.join("app", "api", "modules", "order_items", "controller.ts")}`,
     );
     expect(stdout).toContain("register the controller in app/api/[[...path]]/route.ts");
     expect(stdout).toContain(
-      'import OrderItemsController from "@/app/api/modules/order_items/order_items_controller";',
+      'import OrderItemsController from "@/app/api/modules/order_items/controller";',
     );
     expect(stdout).toContain("controllers: [..., OrderItemsController]");
 
-    const controller = fs.readFileSync(path.join(dir, "order_items_controller.ts"), "utf8");
+    const controller = fs.readFileSync(path.join(dir, "controller.ts"), "utf8");
     expect(controller).toContain("class OrderItemsController {");
     expect(controller).toContain("type Route } from \"nextroller\";");
     expect(controller).toContain("static route: Route<OrderItemsController> = {");
@@ -83,11 +83,11 @@ describe("nextroller make:module", () => {
     expect(controller).toContain("private orderItems = new OrderItemsService()");
     expect(controller).toContain("export default defineController(OrderItemsController);");
 
-    const service = fs.readFileSync(path.join(dir, "order_items_service.ts"), "utf8");
+    const service = fs.readFileSync(path.join(dir, "service.ts"), "utf8");
     expect(service).toContain("export class OrderItemsService {");
     expect(service).toContain('throw new Error("Not implemented");');
 
-    const validator = fs.readFileSync(path.join(dir, "order_items_validator.ts"), "utf8");
+    const validator = fs.readFileSync(path.join(dir, "validator.ts"), "utf8");
     expect(validator).toContain("export const updateSchema = createSchema.partial();");
 
     const result = typecheck();
@@ -104,14 +104,14 @@ describe("nextroller make:module", () => {
   ])("converte %s para %s", (input, expected) => {
     fs.mkdirSync(path.join(cwd, "app"));
     expect(cli("make:module", input).code).toBe(0);
-    expect(fs.existsSync(path.join(modulesDir(), expected, `${expected}_controller.ts`))).toBe(true);
+    expect(fs.existsSync(path.join(modulesDir(), expected, "controller.ts"))).toBe(true);
   });
 
   it("usa src/app quando app/ não existe", () => {
     fs.mkdirSync(path.join(cwd, "src", "app"), { recursive: true });
     const { code, stdout } = cli("make:module", "users");
     expect(code).toBe(0);
-    expect(fs.existsSync(path.join(modulesDir("src/app"), "users", "users_service.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(modulesDir("src/app"), "users", "service.ts"))).toBe(true);
     expect(stdout).toContain("register the controller in src/app/api/[[...path]]/route.ts");
   });
 

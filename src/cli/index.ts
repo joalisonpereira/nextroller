@@ -60,9 +60,9 @@ function makeModule(input: string, cwd: string): void {
   }
 
   const files: Record<string, string> = {
-    [`${names.module}_controller.ts`]: controllerTemplate(names),
-    [`${names.module}_service.ts`]: serviceTemplate(names),
-    [`${names.module}_validator.ts`]: validatorTemplate(),
+    "controller.ts": controllerTemplate(names),
+    "service.ts": serviceTemplate(names),
+    "validator.ts": validatorTemplate(),
   };
 
   fs.mkdirSync(dir, { recursive: true });
@@ -74,7 +74,7 @@ function makeModule(input: string, cwd: string): void {
 
   const routeFile = path.relative(cwd, path.join(appDir, "api", "[[...path]]", "route.ts"));
   const controller = `${names.pascal}Controller`;
-  const importPath = `@/app/api/modules/${names.module}/${names.module}_controller`;
+  const importPath = `@/app/api/modules/${names.module}/controller`;
 
   console.log(
     [

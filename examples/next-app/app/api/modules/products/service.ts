@@ -1,4 +1,4 @@
-import type { CreateInput, UpdateInput } from "./products_validator";
+import type { CreateInput, UpdateInput } from "./validator";
 
 export class ProductsService {
   async list(page: number): Promise<unknown[]> {

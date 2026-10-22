@@ -5,10 +5,10 @@ export interface ModuleNames {
   kebab: string;
 }
 
-export function controllerTemplate({ module, pascal, camel, kebab }: ModuleNames): string {
+export function controllerTemplate({ pascal, camel, kebab }: ModuleNames): string {
   return `import { defineController, type HttpContext, type Route } from "nextroller";
-import { ${pascal}Service } from "./${module}_service";
-import { createSchema, listSchema, updateSchema } from "./${module}_validator";
+import { ${pascal}Service } from "./service";
+import { createSchema, listSchema, updateSchema } from "./validator";
 
 class ${pascal}Controller {
   static route: Route<${pascal}Controller> = {
@@ -46,8 +46,8 @@ export default defineController(${pascal}Controller);
 `;
 }
 
-export function serviceTemplate({ module, pascal }: ModuleNames): string {
-  return `import type { CreateInput, UpdateInput } from "./${module}_validator";
+export function serviceTemplate({ pascal }: ModuleNames): string {
+  return `import type { CreateInput, UpdateInput } from "./validator";
 
 export class ${pascal}Service {
   async list(page: number): Promise<unknown[]> {

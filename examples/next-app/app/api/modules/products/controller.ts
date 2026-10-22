@@ -1,6 +1,6 @@
 import { defineController, type HttpContext, type Route } from "nextroller";
-import { ProductsService } from "./products_service";
-import { createSchema, listSchema, updateSchema } from "./products_validator";
+import { ProductsService } from "./service";
+import { createSchema, listSchema, updateSchema } from "./validator";
 
 class ProductsController {
   static route: Route<ProductsController> = {

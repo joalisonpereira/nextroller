@@ -11,4 +11,5 @@ export const listSchema = z.object({
 });
 
 export type CreateInput = z.infer<typeof createSchema>;
+
 export type UpdateInput = z.infer<typeof updateSchema>;
