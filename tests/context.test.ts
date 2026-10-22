@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createHandler, defineController, type HttpContext } from "../src/index.js";
+import { Controller, Get, Post, createHandler, type HttpContext } from "../src/index.js";
 
 type Probe = (ctx: HttpContext) => unknown;
 
 function handlerFor(probe: Probe, method: "GET" | "POST" = "GET", path: `/${string}` = "/") {
+  const verb = method === "GET" ? Get : Post;
+  @Controller("/probe")
   class Probes {
-    static route = { prefix: "/probe", actions: { run: [method, path] } } as const;
+    @verb(path)
     run(ctx: HttpContext) {
       return probe(ctx);
     }
   }
-  return createHandler({ controllers: [defineController(Probes)] });
+  return createHandler({ controllers: [Probes] });
 }
 
 async function run(probe: Probe, init: RequestInit & { url?: string; path?: `/${string}` } = {}) {
@@ -64,6 +66,27 @@ describe("HttpContext", () => {
       method: "POST",
     });
     expect(await json(optional)).toEqual({ status: 200, body: {} });
+  });
+
+  it("validate.body aceita application/x-www-form-urlencoded", async () => {
+    const res = await run(
+      ({ validate }) =>
+        validate.body(z.object({ name: z.string(), age: z.coerce.number(), tag: z.array(z.string()) })),
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: "name=ana&age=30&tag=a&tag=b",
+      },
+    );
+    expect(await json(res)).toEqual({ status: 200, body: { name: "ana", age: 30, tag: ["a", "b"] } });
+  });
+
+  it("validate.body com form-urlencoded vazio vira {} → 422", async () => {
+    const res = await run(({ validate }) => validate.body(z.object({ name: z.string() })), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    expect(res.status).toBe(422);
   });
 
   it("validate.body pode ser chamado mais de uma vez", async () => {

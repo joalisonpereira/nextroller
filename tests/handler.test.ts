@@ -1,15 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
+  Auth,
+  BadRequestError,
+  ConflictError,
+  Controller,
+  Get,
   HTTPException,
   MethodNotAllowedError,
   ForbiddenError,
+  NotFoundError,
+  Patch,
+  Post,
+  Public,
+  Put,
   RouteNotFoundError,
   UnauthorizedError,
   type AuthGuard,
   createHandler,
-  defineController,
-  type ControllerClass,
   type HttpContext,
 } from "../src/index.js";
 
@@ -21,17 +29,8 @@ function request(method: string, path: string, body?: unknown, headers?: Headers
   });
 }
 
+@Controller("/users", { resource: true })
 class UsersController {
-  static route = {
-    prefix: "/users",
-    resource: true,
-    actions: {
-      me: ["GET", "/me"],
-      activate: ["POST", "/:id/activate"],
-      archive: [["PUT", "PATCH"], "/:id/archive"],
-    },
-  } as const;
-
   index() {
     return [{ id: "1" }];
   }
@@ -46,18 +45,22 @@ class UsersController {
     return { updated: params.id };
   }
   destroy() {}
+  @Get("/me")
   me() {
     return { me: true };
   }
+  @Post("/:id/activate")
   activate({ params }: HttpContext) {
     return { activated: params.id };
   }
+  @Put("/:id/archive")
+  @Patch("/:id/archive")
   archive({ request }: HttpContext) {
     return { archived: request.method };
   }
 }
 
-const Users = defineController(UsersController);
+const Users = UsersController;
 
 async function call(
   handlers: ReturnType<typeof createHandler>,
@@ -88,65 +91,62 @@ describe("roteamento", () => {
     expect((await call(api, "GET", "/api/users/me")).body).toEqual({ me: true });
   });
 
-  it("registra actions com um ou vários verbos", async () => {
+  it("registra rotas com um ou vários verbos", async () => {
     expect((await call(api, "POST", "/api/users/7/activate")).body).toEqual({ activated: "7" });
     expect((await call(api, "PUT", "/api/users/7/archive")).body).toEqual({ archived: "PUT" });
     expect((await call(api, "PATCH", "/api/users/7/archive")).body).toEqual({ archived: "PATCH" });
   });
 
   it("ordena por especificidade independente da ordem de declaração", async () => {
+    @Controller("/items")
     class Items {
-      static route = {
-        prefix: "/items",
-        actions: { byId: ["GET", "/:id"], latest: ["GET", "/latest"] },
-      } as const;
+      @Get("/:id")
       byId() {
         return "byId";
       }
+      @Get("/latest")
       latest() {
         return "latest";
       }
     }
-    const handlers = createHandler({ controllers: [defineController(Items)] });
+    const handlers = createHandler({ controllers: [Items] });
     expect((await call(handlers, "GET", "/api/items/latest")).body).toBe("latest");
     expect((await call(handlers, "GET", "/api/items/9")).body).toBe("byId");
   });
 
-  it("monta basePath + prefix + route.prefix + path", async () => {
+  it("monta basePath + prefix + prefix do @Controller + path", async () => {
     const handlers = createHandler({ controllers: [Users], basePath: "/", prefix: "/v1" });
     expect((await call(handlers, "GET", "/v1/users/me")).body).toEqual({ me: true });
     expect((await call(handlers, "GET", "/api/v1/users/me")).status).toBe(404);
   });
 
-  it("actions sobrescreve resource", async () => {
+  it("decorator de verbo sobrescreve resource", async () => {
+    @Controller("/posts", { resource: true })
     class Posts {
-      static route = {
-        prefix: "/posts",
-        resource: true,
-        actions: { show: ["GET", "/by-slug/:slug"] },
-      } as const;
+      @Get("/by-slug/:slug")
       show({ params }: HttpContext) {
         return params.slug;
       }
     }
-    const handlers = createHandler({ controllers: [defineController(Posts)] });
+    const handlers = createHandler({ controllers: [Posts] });
     expect((await call(handlers, "GET", "/api/posts/by-slug/hello")).body).toBe("hello");
     expect((await call(handlers, "GET", "/api/posts/1")).status).toBe(404);
   });
 
   it("instancia o controller por request", async () => {
     const constructed = vi.fn();
+    @Controller("/count")
     class Counter {
-      static route = { prefix: "/count", actions: { hit: ["GET", "/"] } } as const;
       private hits = 0;
       constructor() {
         constructed();
       }
+      @Get()
       hit() {
         return ++this.hits;
       }
     }
-    const handlers = createHandler({ controllers: [defineController(Counter)] });
+    const handlers = createHandler({ controllers: [Counter] });
     expect((await call(handlers, "GET", "/api/count")).body).toBe(1);
     expect((await call(handlers, "GET", "/api/count")).body).toBe(1);
     expect(constructed).toHaveBeenCalledTimes(2);
@@ -155,39 +155,38 @@ describe("roteamento", () => {
 
 describe("erros de configuração", () => {
   it("rejeita rota duplicada entre controllers", () => {
+    @Controller("/users")
     class Me {
-      static route = { prefix: "/users", actions: { profile: ["GET", "/me"] } } as const;
+      @Get("/me")
       profile() {}
     }
-    expect(() => createHandler({ controllers: [Users, defineController(Me)] })).toThrow(
+    expect(() => createHandler({ controllers: [Users, Me] })).toThrow(
       "duplicate route GET /api/users/me: UsersController.me and Me.profile",
     );
   });
 
   it("trata parâmetros com nomes diferentes como a mesma rota", () => {
+    @Controller("/users")
     class Other {
-      static route = { prefix: "/users", actions: { find: ["GET", "/:userId"] } } as const;
+      @Get("/:userId")
       find() {}
     }
-    expect(() => createHandler({ controllers: [Users, defineController(Other)] })).toThrow(
+    expect(() => createHandler({ controllers: [Users, Other] })).toThrow(
       /duplicate route GET \/api\/users\/:userId: UsersController.show and Other.find/,
     );
   });
 
-  it("rejeita controller sem rotas", () => {
-    class Empty {
-      static route = { prefix: "/empty", resource: true } as const;
+  it("rejeita rota duplicada entre métodos do mesmo controller", () => {
+    @Controller("/dup")
+    class Dup {
+      @Get("/x")
+      a() {}
+      @Get("/x")
+      b() {}
     }
-    expect(() => createHandler({ controllers: [defineController(Empty)] })).toThrow(
-      "Empty: controller does not define any route",
+    expect(() => createHandler({ controllers: [Dup] })).toThrow(
+      "duplicate route GET /api/dup/x: Dup.a and Dup.b",
     );
-  });
-
-  it("revalida controllers não passados pelo defineController", () => {
-    const Bad = class Bad {
-      static route = { prefix: "bad" };
-    } as unknown as ControllerClass;
-    expect(() => createHandler({ controllers: [Bad] })).toThrow("Bad: `route.prefix`");
   });
 
   it("rejeita basePath/prefix sem barra inicial", () => {
@@ -197,28 +196,24 @@ describe("erros de configuração", () => {
 });
 
 describe("regras de resposta", () => {
+  @Controller("/r")
   class Responses {
-    static route = {
-      prefix: "/r",
-      actions: {
-        value: ["GET", "/value"],
-        nothing: ["GET", "/nothing"],
-        raw: ["GET", "/raw"],
-        nil: ["GET", "/nil"],
-      },
-    } as const;
+    @Get("/value")
     value() {
       return { ok: true };
     }
+    @Get("/nothing")
     async nothing() {}
+    @Get("/raw")
     raw() {
       return new Response("texto", { status: 418 });
     }
+    @Get("/nil")
     nil() {
       return null;
     }
   }
-  const api = createHandler({ controllers: [defineController(Responses)] });
+  const api = createHandler({ controllers: [Responses] });
 
   it("valor vira 200 JSON", async () => {
     const { res, body } = await call(api, "GET", "/api/r/value");
@@ -332,30 +327,26 @@ describe("respostas automáticas", () => {
 describe("mapeamento de erros", () => {
   class DomainError extends Error {}
 
+  @Controller("/fail")
   class Failing {
-    static route = {
-      prefix: "/fail",
-      actions: {
-        zod: ["POST", "/zod"],
-        http: ["GET", "/http"],
-        domain: ["GET", "/domain"],
-        string: ["GET", "/string"],
-      },
-    } as const;
+    @Post("/zod")
     async zod({ validate }: HttpContext) {
       return validate.body(z.object({ name: z.string() }));
     }
+    @Get("/http")
     http() {
       throw new HTTPException(409, { message: "Conflito" });
     }
+    @Get("/domain")
     domain() {
       throw new DomainError("boom");
     }
+    @Get("/string")
     string() {
       throw "não é Error";
     }
   }
-  const Fail = defineController(Failing);
+  const Fail = Failing;
 
   it("ZodError vira 422 com issues", async () => {
     const api = createHandler({ controllers: [Fail] });
@@ -432,14 +423,15 @@ describe("mapeamento de erros", () => {
   });
 
   it("erro no construtor do controller passa pelo mapeamento", async () => {
+    @Controller("/broken")
     class Broken {
-      static route = { prefix: "/broken", actions: { go: ["GET", "/"] } } as const;
       constructor() {
         throw new HTTPException(503, { message: "Indisponível" });
       }
+      @Get()
       go() {}
     }
-    const api = createHandler({ controllers: [defineController(Broken)] });
+    const api = createHandler({ controllers: [Broken] });
     expect(await call(api, "GET", "/api/broken")).toMatchObject({
       status: 503,
       body: { error: "Indisponível" },
@@ -448,44 +440,42 @@ describe("mapeamento de erros", () => {
 });
 
 describe("autenticação", () => {
+  @Controller("/products", { resource: true })
+  @Auth()
   class ProductsController {
-    static route = {
-      prefix: "/products",
-      resource: true,
-      auth: true,
-      public: ["index", "show"],
-      actions: { mine: ["GET", "/mine"] },
-    } as const;
-
     static instances = 0;
 
     constructor() {
       ProductsController.instances++;
     }
 
+    @Public()
     index({ auth }: HttpContext) {
       return { auth: auth ?? null };
     }
+    @Public()
     show({ params }: HttpContext<"/:id">) {
       return { id: params.id };
     }
     store({ auth }: HttpContext) {
       return { owner: auth.id };
     }
+    @Get("/mine")
     mine({ auth }: HttpContext) {
       return { role: auth.role };
     }
   }
 
+  @Controller("/ping")
   class PingController {
-    static route = { prefix: "/ping", actions: { ping: ["GET", "/"] } } as const;
+    @Get()
     ping({ auth }: HttpContext) {
       return { auth: auth ?? null };
     }
   }
 
-  const Products = defineController(ProductsController);
-  const Ping = defineController(PingController);
+  const Products = ProductsController;
+  const Ping = PingController;
   const users = { "token-1": { id: "1", role: "admin" as const } };
 
   function handler(options: Partial<Parameters<typeof createHandler>[0]> = {}) {
@@ -525,7 +515,7 @@ describe("autenticação", () => {
     expect(authenticate.mock.calls[0]![0]).toBeInstanceOf(Request);
   });
 
-  it("ações em public e controllers sem auth não chamam authenticate", async () => {
+  it("ações @Public e controllers sem @Auth não chamam authenticate", async () => {
     const { api, authenticate } = handler();
     expect((await send(api, "GET", "/api/products", "token-1")).body).toEqual({ auth: null });
     expect((await send(api, "GET", "/api/products/7")).body).toEqual({ id: "7" });
@@ -575,43 +565,40 @@ describe("autenticação", () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 
-  it("auth sem authenticate falha na inicialização", () => {
+  it("@Auth sem authenticate falha na inicialização", () => {
     expect(() => createHandler({ controllers: [Ping, Products] })).toThrow(
-      "ProductsController: `route.auth` requires `authenticate` in createHandler",
+      "ProductsController: @Auth requires `authenticate` in createHandler",
     );
     expect(() => createHandler({ controllers: [Ping] })).not.toThrow();
   });
 
-  describe("auth como função", () => {
+  describe("@Auth com guard", () => {
     function build(guard: AuthGuard, onError?: Parameters<typeof createHandler>[0]["onError"]) {
       const spy = vi.fn(guard);
+      @Controller("/orders", { resource: true })
+      @Auth(spy)
       class OrdersController {
-        static route = {
-          prefix: "/orders",
-          resource: true,
-          auth: spy,
-          public: ["index"],
-          actions: { approve: [["POST", "PUT"], "/:id/approve"] },
-        } as const;
-
         static instances = 0;
 
         constructor() {
           OrdersController.instances++;
         }
 
+        @Public()
         index({ auth }: HttpContext) {
           return { auth: auth ?? null };
         }
         show({ auth }: HttpContext) {
           return { viewer: auth.id };
         }
+        @Post("/:id/approve")
+        @Put("/:id/approve")
         approve({ auth }: HttpContext) {
           return { approvedBy: auth.role };
         }
       }
       const { api, authenticate } = handler({
-        controllers: [defineController(OrdersController)],
+        controllers: [OrdersController],
         ...(onError ? { onError } : {}),
       });
       return { api, authenticate, spy, OrdersController };
@@ -649,13 +636,13 @@ describe("autenticação", () => {
       expect((await send(empty.api, "GET", "/api/orders/1", "token-1")).status).toBe(403);
     });
 
-    it("sem usuário vira 401 antes de chamar a função", async () => {
+    it("sem usuário vira 401 antes de chamar o guard", async () => {
       const { api, spy } = build(() => true);
       expect((await send(api, "GET", "/api/orders/1")).status).toBe(401);
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("ações em public não chamam authenticate nem a função", async () => {
+    it("ações @Public não chamam authenticate nem o guard", async () => {
       const { api, spy, authenticate } = build(() => false);
       expect((await send(api, "GET", "/api/orders", "token-1")).body).toEqual({ auth: null });
       expect(spy).not.toHaveBeenCalled();
@@ -676,7 +663,7 @@ describe("autenticação", () => {
       expect(onError.mock.calls[0]![0]).toBeInstanceOf(HTTPException);
     });
 
-    it("erro lançado na função passa pelo mapeamento", async () => {
+    it("erro lançado no guard passa pelo mapeamento", async () => {
       const { api } = build(() => {
         throw new HTTPException(402, { message: "Plan required" });
       });
@@ -686,14 +673,39 @@ describe("autenticação", () => {
       });
     });
 
-    it("auth como função sem authenticate falha na inicialização", () => {
+    it("@Auth com guard sem authenticate falha na inicialização", () => {
+      @Controller("/g", { resource: true })
+      @Auth(() => true)
       class Guarded {
-        static route = { prefix: "/g", resource: true, auth: () => true } as const;
         index() {}
       }
-      expect(() => createHandler({ controllers: [defineController(Guarded)] })).toThrow(
-        "Guarded: `route.auth` requires `authenticate` in createHandler",
+      expect(() => createHandler({ controllers: [Guarded] })).toThrow(
+        "Guarded: @Auth requires `authenticate` in createHandler",
       );
     });
+  });
+});
+
+describe("classes de exceção", () => {
+  it.each([
+    [new BadRequestError(), 400, "Bad request", "BadRequestError"],
+    [new UnauthorizedError(), 401, "Unauthorized", "UnauthorizedError"],
+    [new ForbiddenError(), 403, "Forbidden", "ForbiddenError"],
+    [new NotFoundError(), 404, "Not found", "NotFoundError"],
+    [new ConflictError(), 409, "Conflict", "ConflictError"],
+    [new NotFoundError("User not found"), 404, "User not found", "NotFoundError"],
+    [new ForbiddenError("Not your order"), 403, "Not your order", "ForbiddenError"],
+  ])("%s vira resposta JSON", async (error, status, message, name) => {
+    @Controller("/errors")
+    class Errors {
+      @Get()
+      go() {
+        throw error;
+      }
+    }
+    expect(error).toBeInstanceOf(HTTPException);
+    expect(error.name).toBe(name);
+    const api = createHandler({ controllers: [Errors] });
+    expect(await call(api, "GET", "/api/errors")).toMatchObject({ status, body: { error: message } });
   });
 });

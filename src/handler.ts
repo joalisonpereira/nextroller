@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
 import { z } from "zod";
-import { createContext, type AuthData } from "./context.js";
+import { createContext, type AuthData, type HttpContext } from "./context.js";
 import {
   ForbiddenError,
   MethodNotAllowedError,
@@ -11,15 +11,15 @@ import {
 } from "./errors.js";
 import {
   METHODS,
-  RESOURCE_ACTIONS,
   controllerName,
-  validateController,
-  type ActionDef,
+  describeController,
   type AuthGuard,
   type AuthRoute,
   type ControllerClass,
   type Method,
 } from "./controller.js";
+import type { Middleware, ParamSource } from "./metadata.js";
+import { resolveArgs } from "./params.js";
 
 export type ErrorHook = (
   err: unknown,
@@ -49,6 +49,8 @@ interface RouteEntry {
   action: string;
   auth: boolean;
   guard: AuthGuard | undefined;
+  middlewares: Middleware[];
+  params: (ParamSource | undefined)[];
 }
 
 function joinPaths(...parts: string[]): string {
@@ -68,18 +70,8 @@ function checkBase(name: string, value: string): string {
   return value;
 }
 
-function actionsOf(controller: ControllerClass): Record<string, ActionDef> {
-  const { resource, actions } = controller.route;
-  const defs: Record<string, ActionDef> = {};
-  if (resource) {
-    const proto = controller.prototype as Record<string, unknown>;
-    for (const [action, def] of Object.entries(RESOURCE_ACTIONS)) {
-      if (typeof proto[action] === "function") {
-        defs[action] = def;
-      }
-    }
-  }
-  return { ...defs, ...actions };
+function paramNames(path: string): string[] {
+  return [...path.matchAll(/\/:([^/{?]+)/g)].map((match) => match[1]!);
 }
 
 function collectRoutes(
@@ -88,20 +80,20 @@ function collectRoutes(
 ): RouteEntry[] {
   const routes: RouteEntry[] = [];
   for (const controller of controllers) {
-    validateController(controller);
-    const defs = Object.entries(actionsOf(controller));
-    if (defs.length === 0) {
-      throw new Error(
-        `[nextroller] ${controllerName(controller)}: controller does not define any route`,
-      );
-    }
-    const { auth, public: publicActions = [] } = controller.route;
-    for (const [action, [verbs, path]] of defs) {
-      const fullPath = joinPaths(base, controller.route.prefix, path);
-      const isProtected = auth !== undefined && auth !== false && !publicActions.includes(action);
-      const guard = isProtected && typeof auth === "function" ? auth : undefined;
-      for (const method of typeof verbs === "string" ? [verbs] : verbs) {
-        routes.push({ method, path: fullPath, controller, action, auth: isProtected, guard });
+    const { prefix, actions } = describeController(controller);
+    for (const { action, routes: defs, isProtected, guard, middlewares, params } of actions) {
+      for (const { method, path } of defs) {
+        const fullPath = joinPaths(base, prefix, path);
+        const names = paramNames(fullPath);
+        for (const source of params) {
+          if (source?.kind === "param" && source.key !== undefined && !names.includes(source.key)) {
+            throw new Error(
+              `[nextroller] ${controllerName(controller)}: @Param(${JSON.stringify(source.key)}) ` +
+                `on "${action}" is not in ${method} ${fullPath}`,
+            );
+          }
+        }
+        routes.push({ method, path: fullPath, controller, action, auth: isProtected, guard, middlewares, params });
       }
     }
   }
@@ -144,6 +136,28 @@ function checkConflicts(routes: RouteEntry[]): void {
   }
 }
 
+function compose(
+  middlewares: Middleware[],
+  ctx: HttpContext,
+  run: () => Promise<Response>,
+): Promise<Response> {
+  let called = -1;
+  const dispatch = async (index: number): Promise<Response> => {
+    if (index <= called) {
+      throw new Error("[nextroller] middleware called next() more than once");
+    }
+    called = index;
+    const middleware = middlewares[index];
+    if (!middleware) return run();
+    const res = await middleware(ctx, () => dispatch(index + 1));
+    if (!(res instanceof Response)) {
+      throw new Error("[nextroller] middleware must return a Response");
+    }
+    return res;
+  };
+  return dispatch(0);
+}
+
 function toResponse(result: unknown): Response {
   if (result instanceof Response) return result;
   if (result === undefined) return new Response(null, { status: 204 });
@@ -171,7 +185,7 @@ export function createHandler(options: HandlerOptions): Handlers {
   if (unauthenticated) {
     throw new Error(
       `[nextroller] ${controllerName(unauthenticated.controller)}: ` +
-        "`route.auth` requires `authenticate` in createHandler",
+        "@Auth requires `authenticate` in createHandler",
     );
   }
 
@@ -204,7 +218,7 @@ export function createHandler(options: HandlerOptions): Handlers {
     return errorResponse(500, { error: "Internal server error" });
   };
 
-  for (const { method, path, controller, action, auth, guard } of routes) {
+  for (const { method, path, controller, action, auth, guard, middlewares, params } of routes) {
     matcher.add(method, path, true);
     const info: AuthRoute = Object.freeze({
       controller: controllerName(controller),
@@ -213,23 +227,31 @@ export function createHandler(options: HandlerOptions): Handlers {
       path,
     });
     app.on(method, path, async (c: Context) => {
-      try {
-        let data: AuthData | undefined;
-        if (auth) {
-          const resolved = await authenticate!(c.req.raw);
-          if (resolved == null) {
-            throw new UnauthorizedError();
+      const ctx = createContext(c);
+      const run = async (): Promise<Response> => {
+        try {
+          if (auth) {
+            const resolved: AuthData | null | undefined = await authenticate!(c.req.raw);
+            if (resolved == null) {
+              throw new UnauthorizedError();
+            }
+            if (guard && (await guard(resolved, info)) !== true) {
+              throw new ForbiddenError();
+            }
+            ctx.auth = resolved;
           }
-          if (guard && (await guard(resolved, info)) !== true) {
-            throw new ForbiddenError();
-          }
-          data = resolved;
+          const instance = new controller() as Record<
+            string,
+            (...args: unknown[]) => unknown
+          >;
+          const args = await resolveArgs(params, ctx);
+          return toResponse(await instance[action]!(...args));
+        } catch (err) {
+          return handleError(err, c.req.raw);
         }
-        const instance = new controller() as Record<
-          string,
-          (ctx: unknown) => unknown
-        >;
-        return toResponse(await instance[action]!(createContext(c, data)));
+      };
+      try {
+        return await compose(middlewares, ctx, run);
       } catch (err) {
         return handleError(err, c.req.raw);
       }

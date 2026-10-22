@@ -37,6 +37,7 @@ function typecheck() {
         lib: ["dom", "dom.iterable", "esnext"],
         strict: true,
         noEmit: true,
+        experimentalDecorators: true,
         skipLibCheck: true,
         module: "esnext",
         moduleResolution: "bundler",
@@ -75,13 +76,12 @@ describe("nextroller make:module", () => {
     expect(stdout).toContain("controllers: [..., OrderItemsController]");
 
     const controller = fs.readFileSync(path.join(dir, "controller.ts"), "utf8");
-    expect(controller).toContain("class OrderItemsController {");
-    expect(controller).toContain("type Route } from \"nextroller\";");
-    expect(controller).toContain("static route: Route<OrderItemsController> = {");
-    expect(controller).toContain('prefix: "/order-items",');
-    expect(controller).not.toContain("as const");
+    expect(controller).toContain('@Controller("/order-items", { resource: true })');
+    expect(controller).toContain("export default class OrderItemsController {");
     expect(controller).toContain("private orderItems = new OrderItemsService()");
-    expect(controller).toContain("export default defineController(OrderItemsController);");
+    expect(controller).toContain('async show(@Param("id") id: string)');
+    expect(controller).toContain("throw new NotFoundError();");
+    expect(controller).not.toContain("static route");
 
     const service = fs.readFileSync(path.join(dir, "service.ts"), "utf8");
     expect(service).toContain("export class OrderItemsService {");
@@ -90,12 +90,28 @@ describe("nextroller make:module", () => {
     const validator = fs.readFileSync(path.join(dir, "validator.ts"), "utf8");
     expect(validator).toContain("update: create.partial(),");
     expect(validator).toContain("export type Validated = InferValidator<typeof validator>;");
-    expect(controller).toContain("validate.body(validator.create)");
+    expect(controller).toContain('@Body(validator.create) data: Validated["create"]');
     expect(service).toContain('async create(data: Validated["create"])');
 
     const result = typecheck();
     expect(result.stdout + result.stderr).toBe("");
     expect(result.status).toBe(0);
+  });
+
+  it("avisa quando o tsconfig.json não habilita experimentalDecorators", () => {
+    fs.mkdirSync(path.join(cwd, "app"));
+    const missing = cli("make:module", "users");
+    expect(missing.code).toBe(0);
+    expect(missing.stderr).toContain("Warning: nextroller uses legacy decorators");
+    expect(missing.stderr).toContain('"experimentalDecorators": true');
+
+    fs.writeFileSync(
+      path.join(cwd, "tsconfig.json"),
+      '{\n  // comentário\n  "compilerOptions": { "experimentalDecorators": true }\n}\n',
+    );
+    const enabled = cli("make:module", "orders");
+    expect(enabled.code).toBe(0);
+    expect(enabled.stderr).toBe("");
   });
 
   it.each([

@@ -51,6 +51,12 @@ function findAppDir(cwd: string): string {
   throw new CliError("Could not find an app/ or src/app/ directory in the current directory.");
 }
 
+function decoratorsEnabled(cwd: string): boolean {
+  const file = path.join(cwd, "tsconfig.json");
+  if (!fs.existsSync(file)) return false;
+  return /"experimentalDecorators"\s*:\s*true/.test(fs.readFileSync(file, "utf8"));
+}
+
 function makeModule(input: string, cwd: string): void {
   const names = moduleNames(input);
   const appDir = findAppDir(cwd);
@@ -91,6 +97,17 @@ function makeModule(input: string, cwd: string): void {
       "",
     ].join("\n"),
   );
+
+  if (!decoratorsEnabled(cwd)) {
+    console.warn(
+      [
+        `${chalk.yellow("⚠")} ${chalk.yellow.bold("Warning:")} nextroller uses legacy decorators. Enable them in ${chalk.cyan("tsconfig.json")}:`,
+        "",
+        `    "compilerOptions": { ${chalk.bold('"experimentalDecorators": true')} }`,
+        "",
+      ].join("\n"),
+    );
+  }
 }
 
 function main(args: string[]): number {

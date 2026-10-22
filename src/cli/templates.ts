@@ -6,43 +6,36 @@ export interface ModuleNames {
 }
 
 export function controllerTemplate({ pascal, camel, kebab }: ModuleNames): string {
-  return `import { defineController, type HttpContext, type Route } from "nextroller";
+  return `import { Body, Controller, Ctx, NotFoundError, Param, Query, type HttpContext } from "nextroller";
 import { ${pascal}Service } from "./service";
-import { validator } from "./validator";
+import { validator, type Validated } from "./validator";
 
-class ${pascal}Controller {
-  static route: Route<${pascal}Controller> = {
-    prefix: "/${kebab}",
-    resource: true,
-  };
-
+@Controller("/${kebab}", { resource: true })
+export default class ${pascal}Controller {
   constructor(private ${camel} = new ${pascal}Service()) {}
 
-  async index({ validate }: HttpContext) {
-    const { page } = validate.query(validator.list);
+  async index(@Query(validator.list) { page }: Validated["list"]) {
     return this.${camel}.list(page);
   }
 
-  async show({ params, response }: HttpContext<"/:id">) {
-    const item = await this.${camel}.find(params.id);
-    return item ?? response.notFound();
+  async show(@Param("id") id: string) {
+    const item = await this.${camel}.find(id);
+    if (!item) throw new NotFoundError();
+    return item;
   }
 
-  async store({ validate, response }: HttpContext) {
-    const data = await validate.body(validator.create);
+  async store(@Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
     return response.created(await this.${camel}.create(data));
   }
 
-  async update({ params, validate }: HttpContext<"/:id">) {
-    return this.${camel}.update(params.id, await validate.body(validator.update));
+  async update(@Param("id") id: string, @Body(validator.update) data: Validated["update"]) {
+    return this.${camel}.update(id, data);
   }
 
-  async destroy({ params }: HttpContext<"/:id">) {
-    await this.${camel}.remove(params.id);
+  async destroy(@Param("id") id: string) {
+    await this.${camel}.remove(id);
   }
 }
-
-export default defineController(${pascal}Controller);
 `;
 }
 

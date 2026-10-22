@@ -55,6 +55,15 @@ function queryValues(c: Context): Record<string, string | string[]> {
   return values;
 }
 
+export async function readBody(c: Context): Promise<unknown> {
+  const type = c.req.header("content-type") ?? "";
+  if (type.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+    return c.req.parseBody({ all: true }).catch(() => ({}));
+  }
+  const data: unknown = await c.req.json().catch(() => ({}));
+  return data ?? {};
+}
+
 export function createContext<P extends string = string>(c: Context, auth?: AuthData) {
   const params = c.req.param() as PathParams<P>;
   const query = c.req.query();
@@ -69,8 +78,7 @@ export function createContext<P extends string = string>(c: Context, auth?: Auth
     headers,
     validate: {
       async body<S extends z.ZodType>(schema: S): Promise<z.infer<S>> {
-        const data: unknown = await c.req.json().catch(() => ({}));
-        return schema.parse(data ?? {}) as z.infer<S>;
+        return schema.parse(await readBody(c)) as z.infer<S>;
       },
       query<S extends z.ZodType>(schema: S): z.infer<S> {
         return schema.parse(queryValues(c)) as z.infer<S>;

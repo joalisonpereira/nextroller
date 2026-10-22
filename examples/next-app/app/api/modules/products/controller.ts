@@ -1,22 +1,19 @@
-import { defineController, type HttpContext, type Route } from "nextroller";
+import { Auth, Controller, Public, type HttpContext } from "nextroller";
 import { ProductsService } from "./service";
 import { validator } from "./validator";
 
-class ProductsController {
-  static route: Route<ProductsController> = {
-    prefix: "/products",
-    resource: true,
-    auth: (auth) => auth.active,
-    public: ["index", "show"],
-  };
-
+@Controller("/products", { resource: true })
+@Auth((auth) => auth.active)
+export default class ProductsController {
   constructor(private products = new ProductsService()) {}
 
+  @Public()
   async index({ validate }: HttpContext) {
     const { page } = validate.query(validator.list);
     return this.products.list(page);
   }
 
+  @Public()
   async show({ params, response }: HttpContext<"/:id">) {
     const item = await this.products.find(params.id);
     return item ?? response.notFound();
@@ -28,12 +25,13 @@ class ProductsController {
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.products.update(params.id, await validate.body(validator.update));
+    return this.products.update(
+      params.id,
+      await validate.body(validator.update),
+    );
   }
 
   async destroy({ params }: HttpContext<"/:id">) {
     await this.products.remove(params.id);
   }
 }
-
-export default defineController(ProductsController);
