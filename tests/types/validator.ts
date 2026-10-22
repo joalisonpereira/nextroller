@@ -1,12 +1,10 @@
+import { expectTypeOf } from "vitest";
 import { z } from "zod";
 import type { InferValidator } from "../../src/index.js";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-type Expect<T extends true> = T;
-
 const create = z.object({ name: z.string().min(1), price: z.number() });
 
-const validator = {
+export const validator = {
   create,
   update: create.partial(),
   list: z.object({ page: z.coerce.number().default(1) }),
@@ -15,16 +13,14 @@ const validator = {
 
 type Validated = InferValidator<typeof validator>;
 
-export type Cases = [
-  Expect<Equal<Validated["create"], { name: string; price: number }>>,
-  Expect<Equal<Validated["update"], { name?: string | undefined; price?: number | undefined }>>,
-  Expect<Equal<Validated["list"], { page: number }>>,
-  Expect<Equal<Validated["id"], string>>,
-  Expect<Equal<keyof Validated, "create" | "update" | "list" | "id">>,
-];
+expectTypeOf<Validated["create"]>().toEqualTypeOf<{ name: string; price: number }>();
+expectTypeOf<Validated["update"]>().toEqualTypeOf<{ name?: string | undefined; price?: number | undefined }>();
+expectTypeOf<Validated["list"]>().toEqualTypeOf<{ page: number }>();
+expectTypeOf<Validated["id"]>().toEqualTypeOf<string>();
+expectTypeOf<keyof Validated>().toEqualTypeOf<"create" | "update" | "list" | "id">();
 
-// @ts-expect-error
+// @ts-expect-error -- chave inexistente
 export type Missing = Validated["missing"];
 
-// @ts-expect-error
+// @ts-expect-error -- valor não é schema
 export type NotValidator = InferValidator<{ create: string }>;

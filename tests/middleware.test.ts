@@ -17,7 +17,7 @@ function trace(name: string, events: string[]): Middleware {
     async run(_ctx, next) {
       events.push(`${name}:before`);
       const res = await next();
-      events.push(`${name}:after:${res.status}`);
+      events.push(`${name}:after:${String(res.status)}`);
       return res;
     },
   };
@@ -85,14 +85,7 @@ describe("@Use", () => {
     const { api, events } = build();
     const res = await api.POST(new Request("http://localhost/api/m", { method: "POST" }));
     expect(res.status).toBe(401);
-    expect(events).toEqual([
-      "c1:before",
-      "c2:before",
-      "c3:before",
-      "c3:after:401",
-      "c2:after:401",
-      "c1:after:401",
-    ]);
+    expect(events).toEqual(["c1:before", "c2:before", "c3:before", "c3:after:401", "c2:after:401", "c1:after:401"]);
   });
 
   it("next() devolve a resposta já mapeada quando a ação lança", async () => {
@@ -146,7 +139,9 @@ describe("@Use", () => {
     @Auth()
     class Peek {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
 
     const user = { id: "1", role: "admin" as const };
@@ -167,7 +162,9 @@ describe("@Use", () => {
     @Use(failing)
     class Failing {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
 
     const api = createHandler({ controllers: [Failing], onError });
@@ -178,7 +175,7 @@ describe("@Use", () => {
   });
 
   it("rejeita next() repetido e retorno que não é Response", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const twice: Middleware = {
       async run(_ctx, next) {
         await next();
@@ -191,11 +188,15 @@ describe("@Use", () => {
     class Broken {
       @Get("/twice")
       @Use(twice)
-      a() {}
+      a() {
+        return undefined;
+      }
 
       @Get("/nothing")
       @Use(nothing)
-      b() {}
+      b() {
+        return undefined;
+      }
     }
 
     const api = createHandler({ controllers: [Broken] });
@@ -224,7 +225,9 @@ describe("@Use", () => {
     @Use(Stamp)
     class Stamped {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
 
     const api = createHandler({ controllers: [Stamped], middlewares: [Stamp] });
@@ -249,7 +252,9 @@ describe("@Use", () => {
     @Use(Broken)
     class Target {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
 
     const res = await createHandler({ controllers: [Target] }).GET(new Request("http://localhost/api/broken-mw"));
@@ -278,7 +283,9 @@ describe("middlewares globais (createHandler)", () => {
         events.push("action");
       }
 
-      store() {}
+      store() {
+        return undefined;
+      }
     }
 
     const api = createHandler({
@@ -338,7 +345,9 @@ describe("middlewares globais (createHandler)", () => {
     @Controller("/ok")
     class Ok {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
     const onError = vi.fn();
     const api = createHandler({
@@ -398,14 +407,24 @@ describe("middlewares globais (createHandler)", () => {
     @Controller("/ok")
     class Ok {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
     const invalid = (middleware: unknown) => () =>
       createHandler({ controllers: [Ok], middlewares: [middleware as Middleware] });
     const message = "[nextroller] `middlewares` must be an array of classes or objects with a run() method";
     expect(invalid("log")).toThrow(message);
-    expect(invalid(async () => new Response())).toThrow(message);
-    expect(invalid(class NoRun {})).toThrow(message);
+    expect(invalid(() => Promise.resolve(new Response()))).toThrow(message);
+    expect(
+      invalid(
+        class NoRun {
+          go() {
+            return undefined;
+          }
+        },
+      ),
+    ).toThrow(message);
     expect(invalid({})).toThrow(message);
   });
 });

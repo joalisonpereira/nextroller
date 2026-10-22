@@ -56,8 +56,8 @@ export class Users {
 
   @Get("/me")
   @Use(log, Timing, new NeedsArgs("x-id"))
-  me(_ctx: HttpContext) {
-    return { secret: this.secret };
+  me(ctx: HttpContext) {
+    return { secret: this.secret, url: ctx.request.url };
   }
 
   @Put("/:id/archive")
@@ -81,7 +81,9 @@ export class Users {
 
   @Delete()
   @Get()
-  root() {}
+  root() {
+    return undefined;
+  }
 
   @Get("/schemas")
   schemas(
@@ -97,62 +99,75 @@ export class Users {
 @Controller("/ping")
 export class Ping {
   @Get()
-  ping() {}
+  ping() {
+    return undefined;
+  }
 }
 
-// @ts-expect-error
+// @ts-expect-error -- prefix sem barra
 @Controller("users")
 export class BadPrefix {}
 
 export class BadPath {
-  // @ts-expect-error
+  // @ts-expect-error -- path sem barra
   @Get("me")
-  me() {}
+  me() {
+    return undefined;
+  }
 }
 
 export class OnProperty {
-  // @ts-expect-error
+  // @ts-expect-error -- verbo em propriedade
   @Get("/me")
   count = 1;
 }
 
 export class PublicOnProperty {
-  // @ts-expect-error
+  // @ts-expect-error -- @Use em propriedade
   @Use(log)
   count = 1;
 }
 
-// @ts-expect-error
+// @ts-expect-error -- verbo em classe
 @Get("/x")
 export class VerbOnClass {}
 
 export class BodyWithoutSchema {
   @Post()
-  // @ts-expect-error
+  // @ts-expect-error -- @Body com chave
   store(@Body("name") name: string) {
     return name;
   }
 }
 
 export class BadMiddleware {
-  // @ts-expect-error
+  // @ts-expect-error -- middleware sem next
   @Use((ctx: HttpContext) => ctx.request)
-  go() {}
+  go() {
+    return undefined;
+  }
 }
 
 export class FunctionMiddleware {
-  // @ts-expect-error
-  @Use(async (_ctx: HttpContext, next: () => Promise<Response>) => next())
-  go() {}
+  // @ts-expect-error -- middleware função solta
+  @Use((_ctx: HttpContext, next: () => Promise<Response>) => next())
+  go() {
+    return undefined;
+  }
 }
 
 export class ClassWithArgs {
-  // @ts-expect-error
+  // @ts-expect-error -- classe com argumentos
   @Use(NeedsArgs)
-  go() {}
+  go() {
+    return undefined;
+  }
 }
 
 createHandler({ controllers: [Ping], middlewares: [log, Timing, new NeedsArgs("x-id")] });
 
-// @ts-expect-error
-createHandler({ controllers: [Ping], middlewares: [async (_ctx: HttpContext, next: () => Promise<Response>) => next()] });
+createHandler({
+  controllers: [Ping],
+  // @ts-expect-error -- middleware função solta
+  middlewares: [(_ctx: HttpContext, next: () => Promise<Response>) => next()],
+});

@@ -15,7 +15,7 @@ export interface ControllerOptions {
 
 type ClassDecorator = (target: ControllerClass) => void;
 
-type MethodDecorator = <T extends (...args: any[]) => unknown>(
+type MethodDecorator = <T extends (...args: never[]) => unknown>(
   target: object,
   key: string | symbol,
   descriptor: TypedPropertyDescriptor<T>,
@@ -28,7 +28,7 @@ function checkMethod(
   key: string | symbol,
   descriptor: PropertyDescriptor | undefined,
   decorator: string,
-): { controller: Function; action: string } {
+): { controller: object; action: string } {
   const member = memberTarget(target, key, decorator);
   if (typeof descriptor?.value !== "function") {
     throw decoratorError(target, key, `${decorator} can only be used on methods`);
@@ -86,28 +86,28 @@ export function Public(): MethodDecorator {
 }
 
 export function Use(...middlewares: MiddlewareEntry[]): ClassDecorator & MethodDecorator {
-  return ((target: object, key?: string | symbol, descriptor?: PropertyDescriptor) => {
+  return (target: object, key?: string | symbol, descriptor?: PropertyDescriptor) => {
     const invalid = middlewares.findIndex((middleware) => !isMiddleware(middleware));
     if (invalid !== -1) {
       throw decoratorError(
         target,
         key,
-        `@Use middleware ${invalid} must be a class or an object with a run() method`,
+        `@Use middleware ${String(invalid)} must be a class or an object with a run() method`,
       );
     }
     if (key === undefined) {
-      controllerMeta(target as Function).middlewares.unshift(...middlewares);
+      controllerMeta(target).middlewares.unshift(...middlewares);
       return;
     }
     const { controller, action } = checkMethod(target, key, descriptor, "@Use");
     actionMeta(controller, action).middlewares.unshift(...middlewares);
-  }) as ClassDecorator & MethodDecorator;
+  };
 }
 
 export function Auth(): ClassDecorator & ParameterDecorator;
 export function Auth(guard: AuthGuard): ClassDecorator;
 export function Auth(guard?: AuthGuard): ClassDecorator & ParameterDecorator {
-  return ((target: object, key?: string | symbol, index?: number) => {
+  return (target: object, key?: string | symbol, index?: number) => {
     if (typeof index === "number") {
       if (guard !== undefined) {
         throw decoratorError(target, key, "@Auth(guard) cannot be used on parameters; use @Auth()");
@@ -126,5 +126,5 @@ export function Auth(guard?: AuthGuard): ClassDecorator & ParameterDecorator {
       throw decoratorError(target, undefined, "@Auth used more than once");
     }
     meta.auth = guard ? { guard } : {};
-  }) as ClassDecorator & ParameterDecorator;
+  };
 }

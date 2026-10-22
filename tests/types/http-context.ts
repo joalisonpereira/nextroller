@@ -1,18 +1,14 @@
+import { expectTypeOf } from "vitest";
 import type { HttpContext } from "../../src/index.js";
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-type Expect<T extends true> = T;
-
-export type Cases = [
-  Expect<Equal<HttpContext["params"], Record<string, string>>>,
-  Expect<Equal<HttpContext<"/me">["params"], {}>>,
-  Expect<Equal<HttpContext<"/:id">["params"], { id: string }>>,
-  Expect<Equal<HttpContext<"/:id/activate">["params"], { id: string }>>,
-  Expect<Equal<HttpContext<"/:userId/posts/:postId">["params"], { userId: string; postId: string }>>,
-  Expect<Equal<HttpContext<"/files/:name?">["params"], { name?: string }>>,
-  Expect<Equal<HttpContext<"/:id{[0-9]+}">["params"], { id: string }>>,
-  Expect<Equal<HttpContext<"/:id{[0-9]+}?">["params"], { id?: string }>>,
-];
+expectTypeOf<HttpContext["params"]>().toEqualTypeOf<Record<string, string>>();
+expectTypeOf<keyof HttpContext<"/me">["params"]>().toEqualTypeOf<never>();
+expectTypeOf<HttpContext<"/:id">["params"]>().toEqualTypeOf<{ id: string }>();
+expectTypeOf<HttpContext<"/:id/activate">["params"]>().toEqualTypeOf<{ id: string }>();
+expectTypeOf<HttpContext<"/:userId/posts/:postId">["params"]>().toEqualTypeOf<{ userId: string; postId: string }>();
+expectTypeOf<HttpContext<"/files/:name?">["params"]>().toEqualTypeOf<{ name?: string }>();
+expectTypeOf<HttpContext<"/:id{[0-9]+}">["params"]>().toEqualTypeOf<{ id: string }>();
+expectTypeOf<HttpContext<"/:id{[0-9]+}?">["params"]>().toEqualTypeOf<{ id?: string }>();
 
 export function activate({ params }: HttpContext<"/:id/activate">): string {
   return params.id;
@@ -22,12 +18,12 @@ export function untyped({ params }: HttpContext): string | undefined {
   return params.id;
 }
 
-export function noParams({ params }: HttpContext<"/me">) {
-  // @ts-expect-error
+export function noParams({ params }: HttpContext<"/me">): unknown {
+  // @ts-expect-error -- rota sem params
   return params.id;
 }
 
-export function wrongName({ params }: HttpContext<"/:id">) {
-  // @ts-expect-error
+export function wrongName({ params }: HttpContext<"/:id">): unknown {
+  // @ts-expect-error -- param inexistente
   return params.userId;
 }

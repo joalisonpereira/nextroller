@@ -4,7 +4,7 @@ import { readMeta, type MiddlewareEntry, type ParamSource } from "./metadata.js"
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Path = `/${string}`;
 
-export type ControllerClass = new (...args: any[]) => object;
+export type ControllerClass = new (...args: never[]) => object;
 
 export interface AuthRoute {
   readonly controller: string;
@@ -56,7 +56,7 @@ export function describeController(controller: unknown): ControllerDefinition {
     throw fail("controller must be a class");
   }
   const meta = readMeta(controller);
-  if (!meta || meta.prefix === undefined) {
+  if (meta?.prefix === undefined) {
     throw fail("missing @Controller decorator");
   }
 
@@ -65,7 +65,10 @@ export function describeController(controller: unknown): ControllerDefinition {
   if (meta.resource) {
     for (const [action, { methods, path }] of Object.entries(RESOURCE_ACTIONS)) {
       if (typeof proto[action] === "function") {
-        routed.set(action, methods.map((method) => ({ method, path })));
+        routed.set(
+          action,
+          methods.map((method) => ({ method, path })),
+        );
       }
     }
   }
@@ -96,10 +99,10 @@ export function describeController(controller: unknown): ControllerDefinition {
     if (!isProtected && params.some((source) => source?.kind === "auth")) {
       throw fail(`@Auth() parameter on "${action}", which is not protected by @Auth`);
     }
-    const arity = (proto[action] as Function).length;
+    const arity = (proto[action] as (...args: never[]) => unknown).length;
     if (params.length > 0) {
       for (let index = 0; index < Math.max(arity, params.length); index++) {
-        if (!params[index]) throw fail(`parameter ${index} of "${action}" has no decorator`);
+        if (!params[index]) throw fail(`parameter ${String(index)} of "${action}" has no decorator`);
       }
     }
     actions.push({

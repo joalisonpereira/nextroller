@@ -15,10 +15,7 @@ export default class UsersController {
   }
 
   @Public()
-  async store(
-    @Body(validator.create) data: Validated["create"],
-    @Ctx() { response }: HttpContext,
-  ) {
+  async store(@Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
     return response.created(await this.service.create(data));
   }
 }
@@ -46,17 +43,17 @@ Built on [Hono](https://hono.dev) (internal routing) and [Zod](https://zod.dev) 
 
 ## Features
 
-|                                 |                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 🧭 **Routes in the controller** | `@Controller`, `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete` and automatic CRUD with `resource: true` |
-| 📥 **Two action styles**        | parameter decorators (`@Body`, `@Query`, `@Param`, ...) or plain `HttpContext`, no decorators        |
-| ✅ **Zod validation**           | `@Body(schema)` or `validate.body(schema)`; `ZodError` becomes `422` automatically                   |
+|                                 |                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 🧭 **Routes in the controller** | `@Controller`, `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete` and automatic CRUD with `resource: true`  |
+| 📥 **Two action styles**        | parameter decorators (`@Body`, `@Query`, `@Param`, ...) or plain `HttpContext`, no decorators         |
+| ✅ **Zod validation**           | `@Body(schema)` or `validate.body(schema)`; `ZodError` becomes `422` automatically                    |
 | 🔐 **Declarative auth**         | `@Auth()` / `@Auth(guard)` on the class, `@Public()` on the action; verification delegated to the app |
-| 🧩 **Middlewares**              | global and per controller/action (`@Use`), following the `run(ctx, next)` pattern                   |
-| 🚨 **HTTP exceptions**          | `NotFoundError`, `ForbiddenError`, ... with central handling through `onError`                       |
-| 🛣️ **JSON 404/405**             | with the `Allow` header, plus `HEAD` and `OPTIONS` support                                           |
-| ⚙️ **CLI**                      | `make:module`, `make:middleware` and `routes`                                                        |
-| 🛑 **Fail fast**                | configuration errors break at import or in `createHandler`, never during a request                   |
+| 🧩 **Middlewares**              | global and per controller/action (`@Use`), following the `run(ctx, next)` pattern                     |
+| 🚨 **HTTP exceptions**          | `NotFoundError`, `ForbiddenError`, ... with central handling through `onError`                        |
+| 🛣️ **JSON 404/405**             | with the `Allow` header, plus `HEAD` and `OPTIONS` support                                            |
+| ⚙️ **CLI**                      | `make:module`, `make:middleware` and `routes`                                                         |
+| 🛑 **Fail fast**                | configuration errors break at import or in `createHandler`, never during a request                    |
 
 ## Installation
 
@@ -115,14 +112,14 @@ app/
         validator.ts      # Zod schemas
 ```
 
-| rule                     | detail                                                                         |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| Module name              | plural, `snake_case` (`users`, `order_items`)                                  |
-| File names               | always `controller.ts`, `service.ts`, `validator.ts` (the folder is the module) |
-| Class names              | carry the module: `UsersController`, `UsersService`                            |
-| Imports                  | relative inside the module; `@/app/api/modules/...` outside it                 |
-| Reuse across modules     | through services, never by importing another module's controller              |
-| `route.ts`               | never inside `modules/` or `middlewares/`                                      |
+| rule                 | detail                                                                          |
+| -------------------- | ------------------------------------------------------------------------------- |
+| Module name          | plural, `snake_case` (`users`, `order_items`)                                   |
+| File names           | always `controller.ts`, `service.ts`, `validator.ts` (the folder is the module) |
+| Class names          | carry the module: `UsersController`, `UsersService`                             |
+| Imports              | relative inside the module; `@/app/api/modules/...` outside it                  |
+| Reuse across modules | through services, never by importing another module's controller                |
+| `route.ts`           | never inside `modules/` or `middlewares/`                                       |
 
 ## Controllers and routes
 
@@ -204,10 +201,10 @@ Load heavy dependencies with `import()` inside the method, not at the top of the
 
 Each action can read the request in two ways. Both are equivalent and can be mixed in the same controller (one style per method):
 
-| style                                         | how it works                                                 | when to use                               |
-| --------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------- |
+| style                                         | how it works                                                         | when to use                              |
+| --------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------- |
 | [Parameter decorators](#parameter-decorators) | each parameter declares what it receives (`@Param("id") id: string`) | explicit signature, easy-to-test actions |
-| [Plain `HttpContext`](#httpcontext)           | no decorators; the method receives the context and destructures it | less ceremony, everything in one object  |
+| [Plain `HttpContext`](#httpcontext)           | no decorators; the method receives the context and destructures it   | less ceremony, everything in one object  |
 
 ```ts
 async show(@Param("id") id: string) {}
@@ -217,16 +214,16 @@ async show({ params }: HttpContext<"/:id">) {}
 
 ### Parameter decorators
 
-| decorator                                        | injects                                                         |
-| ------------------------------------------------ | --------------------------------------------------------------- |
-| `@Body()`                                        | raw body (JSON or form-urlencoded)                              |
-| `@Body(schema)`                                  | validated body (`validate.body(schema)`)                        |
-| `@Query()` / `@Query("k")` / `@Query(schema)`    | whole query / key `k` / validated query                         |
-| `@Param()` / `@Param("k")` / `@Param(schema)`    | all params / param `k` / validated params                       |
-| `@Header()` / `@Header("k")` / `@Header(schema)` | all headers / header `k` (lowercase) / validated headers        |
-| `@Req()`                                         | original `Request`                                              |
-| `@Ctx()`                                         | the whole `HttpContext`                                         |
-| `@Auth()`                                        | user resolved by `authenticate`                                 |
+| decorator                                        | injects                                                  |
+| ------------------------------------------------ | -------------------------------------------------------- |
+| `@Body()`                                        | raw body (JSON or form-urlencoded)                       |
+| `@Body(schema)`                                  | validated body (`validate.body(schema)`)                 |
+| `@Query()` / `@Query("k")` / `@Query(schema)`    | whole query / key `k` / validated query                  |
+| `@Param()` / `@Param("k")` / `@Param(schema)`    | all params / param `k` / validated params                |
+| `@Header()` / `@Header("k")` / `@Header(schema)` | all headers / header `k` (lowercase) / validated headers |
+| `@Req()`                                         | original `Request`                                       |
+| `@Ctx()`                                         | the whole `HttpContext`                                  |
+| `@Auth()`                                        | user resolved by `authenticate`                          |
 
 ```ts
 @Get("/:id/orders")
@@ -264,16 +261,16 @@ async store({ auth, validate, response }: HttpContext) {
 
 Context fields:
 
-| field      | content                                                                |
-| ---------- | ---------------------------------------------------------------------- |
-| `request`  | original `Request` (a `NextRequest` at runtime)                        |
-| `auth`     | value returned by `authenticate` (`undefined` on routes without auth)  |
-| `params`   | path params                                                            |
-| `query`    | query string (a repeated key becomes `string[]`)                       |
-| `headers`  | headers, lowercase keys                                                |
-| `validate` | `body`, `query`, `params`, `headers` (see [Validation](#validation))   |
-| `response` | response helpers (see [Responses](#responses))                         |
-| `raw`      | Hono `Context` (escape hatch)                                          |
+| field      | content                                                               |
+| ---------- | --------------------------------------------------------------------- |
+| `request`  | original `Request` (a `NextRequest` at runtime)                       |
+| `auth`     | value returned by `authenticate` (`undefined` on routes without auth) |
+| `params`   | path params                                                           |
+| `query`    | query string (a repeated key becomes `string[]`)                      |
+| `headers`  | headers, lowercase keys                                               |
+| `validate` | `body`, `query`, `params`, `headers` (see [Validation](#validation))  |
+| `response` | response helpers (see [Responses](#responses))                        |
+| `raw`      | Hono `Context` (escape hatch)                                         |
 
 **Typed params:** `HttpContext<"/:id/activate">` types `params` as `{ id: string }`. Without the generic, `params` is `Record<string, string>`. `"/:id?"` becomes `{ id?: string }`.
 
@@ -329,11 +326,11 @@ async store({ validate }: HttpContext) {
 
 The method's return value defines the response:
 
-| return         | response          |
-| -------------- | ----------------- |
-| object / value | `200` JSON        |
-| `undefined`    | `204` no body     |
-| `Response`     | sent as is        |
+| return         | response      |
+| -------------- | ------------- |
+| object / value | `200` JSON    |
+| `undefined`    | `204` no body |
+| `Response`     | sent as is    |
 
 Helpers on `ctx.response` (or via `@Ctx()`):
 
@@ -404,12 +401,12 @@ createHandler({
 
 ### Automatic responses
 
-| situation                       | status                             | body                              | header                   |
-| ------------------------------- | ---------------------------------- | --------------------------------- | ------------------------ |
-| no path matches                 | `404`                              | `{ error: "Route not found" }`    |                          |
-| path matches, verb doesn't      | `405`                              | `{ error: "Method not allowed" }` | `Allow: GET, PUT, PATCH` |
-| `OPTIONS` on a registered path  | `204`                              |                                   | `Allow`                  |
-| `HEAD`                          | same as the path's `GET`, no body  |                                   |                          |
+| situation                      | status                            | body                              | header                   |
+| ------------------------------ | --------------------------------- | --------------------------------- | ------------------------ |
+| no path matches                | `404`                             | `{ error: "Route not found" }`    |                          |
+| path matches, verb doesn't     | `405`                             | `{ error: "Method not allowed" }` | `Allow: GET, PUT, PATCH` |
+| `OPTIONS` on a registered path | `204`                             |                                   | `Allow`                  |
+| `HEAD`                         | same as the path's `GET`, no body |                                   |                          |
 
 404 and 405 go through `onError` (customize with `err instanceof RouteNotFoundError`) and through global middlewares only.
 
@@ -424,29 +421,25 @@ export default class ProductsController {
   @Public()
   async index() {}
 
-  async store(
-    @Auth() auth: User,
-    @Body(validator.create) data: Validated["create"],
-  ) {}
+  async store(@Auth() auth: User, @Body(validator.create) data: Validated["create"]) {}
 }
 ```
 
 ```ts
 export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   controllers: [ProductsController],
-  authenticate: async (request) =>
-    verifyToken(request.headers.get("authorization")),
+  authenticate: async (request) => verifyToken(request.headers.get("authorization")),
 });
 ```
 
 ### Flow on a protected route
 
-| step                                            | result                                                    |
-| ----------------------------------------------- | --------------------------------------------------------- |
-| 1. `authenticate(request)`                      | runs before the controller is instantiated (sync or async) |
-| 2. returned `null` / `undefined`                | `401` `{ error: "Unauthorized" }`                         |
-| 3. `@Auth(guard)` returned anything but `true`  | `403` `{ error: "Forbidden" }`                            |
-| 4. allowed                                      | value becomes `ctx.auth` and the `@Auth()` parameter      |
+| step                                           | result                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| 1. `authenticate(request)`                     | runs before the controller is instantiated (sync or async) |
+| 2. returned `null` / `undefined`               | `401` `{ error: "Unauthorized" }`                          |
+| 3. `@Auth(guard)` returned anything but `true` | `403` `{ error: "Forbidden" }`                             |
+| 4. allowed                                     | value becomes `ctx.auth` and the `@Auth()` parameter       |
 
 `@Public` actions and controllers without `@Auth` never call `authenticate`.
 
@@ -497,24 +490,22 @@ export class LoggerMiddleware implements Middleware {
   async run({ request }: HttpContext, next: () => Promise<Response>) {
     const start = Date.now();
     const res = await next();
-    console.log(
-      `${request.method} ${new URL(request.url).pathname} ${res.status} ${Date.now() - start}ms`,
-    );
+    console.log(`${request.method} ${new URL(request.url).pathname} ${res.status} ${Date.now() - start}ms`);
     return res;
   }
 }
 ```
 
-| form                                        | behavior                              |
-| ------------------------------------------- | ------------------------------------- |
-| `@Use(LoggerMiddleware)`                    | class: instantiated on every request  |
-| `@Use(new CorsMiddleware({ origin: "*" }))` | instance: reused across requests      |
+| form                                        | behavior                             |
+| ------------------------------------------- | ------------------------------------ |
+| `@Use(LoggerMiddleware)`                    | class: instantiated on every request |
+| `@Use(new CorsMiddleware({ origin: "*" }))` | instance: reused across requests     |
 
-| level      | where                                                                      |
-| ---------- | -------------------------------------------------------------------------- |
-| global     | `createHandler({ middlewares: [...] })` (also runs on 404/405/OPTIONS)     |
-| controller | `@Use(...)` on the class                                                   |
-| action     | `@Use(...)` on the method                                                  |
+| level      | where                                                                  |
+| ---------- | ---------------------------------------------------------------------- |
+| global     | `createHandler({ middlewares: [...] })` (also runs on 404/405/OPTIONS) |
+| controller | `@Use(...)` on the class                                               |
+| action     | `@Use(...)` on the method                                              |
 
 **Execution order:** global → controller `@Use` → action `@Use` → auth (`authenticate` + guard) → controller instance → action. Within each level, declaration order.
 
@@ -525,14 +516,14 @@ export class LoggerMiddleware implements Middleware {
 
 ## `createHandler`
 
-| option         | type                                 | default  | description                                 |
-| -------------- | ------------------------------------ | -------- | ------------------------------------------- |
-| `controllers`  | `Class[]`                            |          | classes with `@Controller`                  |
-| `basePath`     | `string`                             | `"/api"` | where the catch-all is mounted              |
-| `prefix`       | `string`                             |          | global prefix, e.g. `"/v1"`                 |
-| `authenticate` | `(request) => user \| null`          |          | required if any controller uses `@Auth`     |
-| `middlewares`  | `MiddlewareEntry[]`                  |          | global middlewares                          |
-| `onError`      | `(err, request) => Response \| void` |          | error hook                                  |
+| option         | type                                 | default  | description                             |
+| -------------- | ------------------------------------ | -------- | --------------------------------------- |
+| `controllers`  | `Class[]`                            |          | classes with `@Controller`              |
+| `basePath`     | `string`                             | `"/api"` | where the catch-all is mounted          |
+| `prefix`       | `string`                             |          | global prefix, e.g. `"/v1"`             |
+| `authenticate` | `(request) => user \| null`          |          | required if any controller uses `@Auth` |
+| `middlewares`  | `MiddlewareEntry[]`                  |          | global middlewares                      |
+| `onError`      | `(err, request) => Response \| void` |          | error hook                              |
 
 Returns `{ GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS }` to export from `route.ts`.
 
@@ -607,10 +598,10 @@ npx nextroller routes
 
 Configuration errors never reach a request:
 
-| when                | examples                                                                                                                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **compile time**    | path without a leading `/`, method decorator on a property, `@Body("x")`, `@Auth(guard)` on a parameter, guard not returning `boolean`, middleware as a bare function                             |
-| **module import**   | repeated `@Controller`/`@Auth`, decorator on a `static` member, repeated verb + path on a method, two decorators on the same parameter, `@Use` with an invalid item                               |
+| when                | examples                                                                                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **compile time**    | path without a leading `/`, method decorator on a property, `@Body("x")`, `@Auth(guard)` on a parameter, guard not returning `boolean`, middleware as a bare function                                                   |
+| **module import**   | repeated `@Controller`/`@Auth`, decorator on a `static` member, repeated verb + path on a method, two decorators on the same parameter, `@Use` with an invalid item                                                     |
 | **`createHandler`** | class without `@Controller`, controller without routes, duplicate route, `@Public` without `@Auth`, `@Auth` without `authenticate`, undecorated parameter, `@Param("k")` outside the path, `@Auth()` on a public action |
 
 ## Notes

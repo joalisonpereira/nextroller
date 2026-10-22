@@ -49,6 +49,10 @@ examples/next-app/  # app Next de exemplo
 
 Toolchain: `tsc`, Vitest (Vite 8/Oxc) e Next 16 (SWC/Turbopack, dev e build) leem `experimentalDecorators` do tsconfig, sem plugin.
 
+TypeScript fixado em 6.x: `typescript-eslint` exige `typescript <6.1` e o TS 7 não expõe API JS.
+
+Qualidade: ESLint (`recommended` + `strictTypeChecked` + `stylisticTypeChecked`), Prettier (`printWidth` 120), commitlint (conventional) e husky (`pre-commit`: lint + format:check + typecheck; `commit-msg`: commitlint). `examples/` fica fora de lint e format. Não desligar regra nem usar `eslint-disable`: adaptar o código. Únicas opções ajustadas: `no-empty-object-type` (`allowInterfaces`, por causa do `Register`) e `no-extraneous-class` (`allowWithDecorator`).
+
 ## Princípios de design
 
 - **Não brigar com o roteamento do Next.** Toda integração isolada em `createHandler()`.

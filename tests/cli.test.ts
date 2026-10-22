@@ -60,19 +60,11 @@ describe("nextroller make:module", () => {
     expect(code).toBe(0);
 
     const dir = path.join(modulesDir(), "order_items");
-    expect(fs.readdirSync(dir).sort()).toEqual([
-      "controller.ts",
-      "service.ts",
-      "validator.ts",
-    ]);
+    expect(fs.readdirSync(dir).sort()).toEqual(["controller.ts", "service.ts", "validator.ts"]);
     expect(stdout).toContain("✔ Module order_items created");
-    expect(stdout).toContain(
-      `CREATE  ${path.join("app", "api", "modules", "order_items", "controller.ts")}`,
-    );
+    expect(stdout).toContain(`CREATE  ${path.join("app", "api", "modules", "order_items", "controller.ts")}`);
     expect(stdout).toContain("register the controller in app/api/[[...path]]/route.ts");
-    expect(stdout).toContain(
-      'import OrderItemsController from "@/app/api/modules/order_items/controller";',
-    );
+    expect(stdout).toContain('import OrderItemsController from "@/app/api/modules/order_items/controller";');
     expect(stdout).toContain("controllers: [..., OrderItemsController]");
 
     const controller = fs.readFileSync(path.join(dir, "controller.ts"), "utf8");
@@ -273,7 +265,7 @@ export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
 @Use(AuditMiddleware)
 export default class UsersController {
   static instances = 0;
-  private label = "@Get(\"/not-a-route\")";
+  private label = "@Get("/not-a-route")";
 
   constructor(@Inject() private service = new UsersService()) {}
 
@@ -338,9 +330,21 @@ export default class LegacyController {}
     expect(lines[0]).toEqual(["METHOD", "PATH", "HANDLER", "AUTH", "MIDDLEWARES"]);
     expect(lines.slice(1, -1)).toEqual([
       ["GET", "/api/v1/orders", "OrdersController.index", "auth + guard", "LoggerMiddleware, CorsMiddleware"],
-      ["POST", "/api/v1/orders/:id/approve", "OrdersController.approve", "auth + guard", "LoggerMiddleware, CorsMiddleware"],
+      [
+        "POST",
+        "/api/v1/orders/:id/approve",
+        "OrdersController.approve",
+        "auth + guard",
+        "LoggerMiddleware, CorsMiddleware",
+      ],
       ["GET", "/api/v1/users", "UsersController.index", "public", "LoggerMiddleware, CorsMiddleware, AuditMiddleware"],
-      ["GET", "/api/v1/users/by-email/:email", "UsersController.update", "auth", "LoggerMiddleware, CorsMiddleware, AuditMiddleware"],
+      [
+        "GET",
+        "/api/v1/users/by-email/:email",
+        "UsersController.update",
+        "auth",
+        "LoggerMiddleware, CorsMiddleware, AuditMiddleware",
+      ],
       [
         "GET",
         "/api/v1/users/me",
@@ -349,8 +353,20 @@ export default class LegacyController {}
         "LoggerMiddleware, CorsMiddleware, AuditMiddleware, RateLimitMiddleware",
       ],
       ["GET", "/api/v1/users/:id", "UsersController.show", "auth", "LoggerMiddleware, CorsMiddleware, AuditMiddleware"],
-      ["PUT", "/api/v1/users/:id/archive", "UsersController.archive", "auth", "LoggerMiddleware, CorsMiddleware, AuditMiddleware"],
-      ["PATCH", "/api/v1/users/:id/archive", "UsersController.archive", "auth", "LoggerMiddleware, CorsMiddleware, AuditMiddleware"],
+      [
+        "PUT",
+        "/api/v1/users/:id/archive",
+        "UsersController.archive",
+        "auth",
+        "LoggerMiddleware, CorsMiddleware, AuditMiddleware",
+      ],
+      [
+        "PATCH",
+        "/api/v1/users/:id/archive",
+        "UsersController.archive",
+        "auth",
+        "LoggerMiddleware, CorsMiddleware, AuditMiddleware",
+      ],
     ]);
     expect(lines.at(-1)).toEqual(["8 routes"]);
     expect(stderr).toContain(
@@ -360,7 +376,10 @@ export default class LegacyController {}
 
   it("resolve @/ pelo tsconfig em projetos com src/app", () => {
     fixture("src/app", "@/app");
-    write("tsconfig.json", '{\n  // alias do Next com src/\n  "compilerOptions": { "paths": { "@/*": ["./src/*"] } }\n}');
+    write(
+      "tsconfig.json",
+      '{\n  // alias do Next com src/\n  "compilerOptions": { "paths": { "@/*": ["./src/*"] } }\n}',
+    );
     const { code, stdout } = cli("routes");
     expect(code).toBe(0);
     expect(stdout).toContain("8 routes");
@@ -394,9 +413,7 @@ export default PingController;
 
   it("falha sem route.ts, sem createHandler ou com controllers não literal", () => {
     fs.mkdirSync(path.join(cwd, "app"));
-    expect(cli("routes").stderr).toContain(
-      `Could not find ${path.join("app", "api", "[[...path]]", "route.ts")}.`,
-    );
+    expect(cli("routes").stderr).toContain(`Could not find ${path.join("app", "api", "[[...path]]", "route.ts")}.`);
 
     write("app/api/[[...path]]/route.ts", "export const GET = () => new Response();\n");
     expect(cli("routes").stderr).toContain("Could not find a createHandler({ ... }) call");

@@ -47,7 +47,7 @@ function toSnakeCase(input: string): string {
 function moduleNames(input: string): ModuleNames {
   const module = toSnakeCase(input);
   const words = module.split("_");
-  const pascal = words.map((w) => w[0]!.toUpperCase() + w.slice(1)).join("");
+  const pascal = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
   return {
     module,
     pascal,
@@ -157,15 +157,30 @@ function makeMiddleware(input: string, cwd: string): void {
 }
 
 const COMMANDS: Record<string, { args: number; run: (args: string[], cwd: string) => void }> = {
-  "make:module": { args: 1, run: ([name], cwd) => makeModule(name!, cwd) },
-  "make:middleware": { args: 1, run: ([name], cwd) => makeMiddleware(name!, cwd) },
-  routes: { args: 0, run: (_args, cwd) => listRoutes(cwd) },
+  "make:module": {
+    args: 1,
+    run: ([name = ""], cwd) => {
+      makeModule(name, cwd);
+    },
+  },
+  "make:middleware": {
+    args: 1,
+    run: ([name = ""], cwd) => {
+      makeMiddleware(name, cwd);
+    },
+  },
+  routes: {
+    args: 0,
+    run: (_args, cwd) => {
+      listRoutes(cwd);
+    },
+  },
 };
 
 function main(args: string[]): number {
   const [command, ...rest] = args;
   const spec = command !== undefined && Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
-  if (!spec || rest.length !== spec.args) {
+  if (spec?.args !== rest.length) {
     console.error(USAGE);
     return 1;
   }

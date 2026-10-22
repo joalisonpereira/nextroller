@@ -14,7 +14,7 @@ import {
   type Middleware,
 } from "../src/index.js";
 
-type AnyDecorator = (...args: any[]) => void;
+type AnyDecorator = (...args: unknown[]) => void;
 const loose = (decorator: unknown) => decorator as AnyDecorator;
 const pass: Middleware = { run: (_ctx, next) => next() };
 const boot = (controller: unknown) => () =>
@@ -23,32 +23,34 @@ const boot = (controller: unknown) => () =>
 describe("decorators (validação na decoração)", () => {
   it("rejeita prefix e path sem barra inicial", () => {
     expect(() => {
-      @(loose(Controller("users" as `/${string}`)))
+      @loose(Controller("users" as `/${string}`))
       class Users {}
-      void Users;
+      return Users;
     }).toThrow('Users: @Controller prefix must start with "/": "users"');
 
     expect(() => {
       class Users {
-        @(loose(Get("me" as `/${string}`)))
-        me() {}
+        @loose(Get("me" as `/${string}`))
+        me() {
+          return undefined;
+        }
       }
-      void Users;
+      return Users;
     }).toThrow('Users.me: @Get path must start with "/": "me"');
   });
 
   it("rejeita resource não boolean e @Controller repetido", () => {
     expect(() => {
-      @(loose(Controller("/a", { resource: "yes" as unknown as boolean })))
+      @loose(Controller("/a", { resource: "yes" as unknown as boolean }))
       class A {}
-      void A;
+      return A;
     }).toThrow("A: @Controller `resource` must be a boolean");
 
     expect(() => {
       @Controller("/a")
       @Controller("/b")
       class A {}
-      void A;
+      return A;
     }).toThrow("A: @Controller used more than once");
   });
 
@@ -57,27 +59,35 @@ describe("decorators (validação na decoração)", () => {
       class A {
         @Get("/x")
         @Get("/x")
-        go() {}
+        go() {
+          return undefined;
+        }
       }
-      void A;
+      return A;
     }).toThrow('A.go: duplicate @Get("/x")');
   });
 
   it("rejeita decorator de método em propriedade e membro estático", () => {
     expect(() => {
       class A {
-        @(loose(Get("/x")))
+        @loose(Get("/x"))
         count = 1;
       }
-      void A;
+      return A;
     }).toThrow("A.count: @Get can only be used on methods");
 
     expect(() => {
       class A {
         @Get("/x")
-        static go() {}
+        static go() {
+          return undefined;
+        }
+
+        index() {
+          return undefined;
+        }
       }
-      void A;
+      return A;
     }).toThrow("A.go: @Get cannot be used on static members");
   });
 
@@ -86,30 +96,32 @@ describe("decorators (validação na decoração)", () => {
       @Auth()
       @Auth()
       class A {}
-      void A;
+      return A;
     }).toThrow("A: @Auth used more than once");
 
     expect(() => {
       class A {
-        @(loose(Auth()))
-        go() {}
+        @loose(Auth())
+        go() {
+          return undefined;
+        }
       }
-      void A;
+      return A;
     }).toThrow("A.go: @Auth can only be used on classes or parameters");
 
     expect(() => {
       class A {
-        go(@(loose(Auth(() => true))) auth: unknown) {
+        go(@loose(Auth(() => true)) auth: unknown) {
           return auth;
         }
       }
-      void A;
+      return A;
     }).toThrow("A.go: @Auth(guard) cannot be used on parameters; use @Auth()");
 
     expect(() => {
-      @(loose(Auth("admin" as never)))
+      @loose(Auth("admin" as never))
       class A {}
-      void A;
+      return A;
     }).toThrow("A: @Auth guard must be a function");
   });
 
@@ -118,51 +130,53 @@ describe("decorators (validação na decoração)", () => {
     expect(() => {
       @Use(pass, "log" as unknown as Middleware)
       class A {}
-      void A;
+      return A;
     }).toThrow(`A: ${message}`);
 
     expect(() => {
       class B {
-        @Use(pass, (async () => new Response()) as unknown as Middleware)
-        go() {}
+        @Use(pass, (() => Promise.resolve(new Response())) as unknown as Middleware)
+        go() {
+          return undefined;
+        }
       }
-      void B;
+      return B;
     }).toThrow(`B.go: ${message}`);
   });
 
   it("rejeita parameter decorators inválidos", () => {
     expect(() => {
       class A {
-        constructor(@(loose(Body())) readonly body: unknown) {}
+        constructor(@loose(Body()) readonly body: unknown) {}
       }
-      void A;
+      return A;
     }).toThrow("A: @Body cannot be used on the constructor");
 
     expect(() => {
       class A {
-        go(@(loose(Body("name" as never))) body: unknown) {
+        go(@loose(Body("name" as never)) body: unknown) {
           return body;
         }
       }
-      void A;
+      return A;
     }).toThrow("A.go: @Body expects a Zod schema");
 
     expect(() => {
       class A {
-        go(@(loose(Query(""))) q: unknown) {
+        go(@loose(Query("")) q: unknown) {
           return q;
         }
       }
-      void A;
+      return A;
     }).toThrow("A.go: @Query expects a key or a Zod schema");
 
     expect(() => {
       class A {
-        go(@Query() @(loose(Param())) q: unknown) {
+        go(@Query() @loose(Param()) q: unknown) {
           return q;
         }
       }
-      void A;
+      return A;
     }).toThrow("A.go: parameter 0 has more than one decorator");
   });
 });
@@ -170,10 +184,20 @@ describe("decorators (validação na decoração)", () => {
 describe("createHandler (validação do controller)", () => {
   it("rejeita valor que não é classe e classe sem @Controller", () => {
     expect(boot({})).toThrow("<anonymous>: controller must be a class");
-    expect(boot(class Plain {})).toThrow("Plain: missing @Controller decorator");
+    expect(
+      boot(
+        class Plain {
+          go() {
+            return undefined;
+          }
+        },
+      ),
+    ).toThrow("Plain: missing @Controller decorator");
     class OnlyRoutes {
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
     expect(boot(OnlyRoutes)).toThrow("OnlyRoutes: missing @Controller decorator");
   });
@@ -181,7 +205,9 @@ describe("createHandler (validação do controller)", () => {
   it("rejeita controller sem rotas", () => {
     @Controller("/empty", { resource: true })
     class Empty {
-      helper() {}
+      helper() {
+        return undefined;
+      }
     }
     expect(boot(Empty)).toThrow("Empty: controller does not define any route");
   });
@@ -190,16 +216,22 @@ describe("createHandler (validação do controller)", () => {
     @Controller("/a", { resource: true })
     class NoAuth {
       @Public()
-      index() {}
+      index() {
+        return undefined;
+      }
     }
     expect(boot(NoAuth)).toThrow('NoAuth: @Public on "index" requires @Auth on the controller');
 
     @Controller("/a", { resource: true })
     @Auth()
     class NotRoute {
-      index() {}
+      index() {
+        return undefined;
+      }
       @Public()
-      helper() {}
+      helper() {
+        return undefined;
+      }
     }
     expect(boot(NotRoute)).toThrow('NotRoute: @Public on "helper", which is not a route');
   });
@@ -207,22 +239,26 @@ describe("createHandler (validação do controller)", () => {
   it("rejeita @Use e parameter decorators em método que não é rota", () => {
     @Controller("/a", { resource: true })
     class UseHelper {
-      index() {}
+      index() {
+        return undefined;
+      }
       @Use(pass)
-      helper() {}
+      helper() {
+        return undefined;
+      }
     }
     expect(boot(UseHelper)).toThrow('UseHelper: @Use on "helper", which is not a route');
 
     @Controller("/a", { resource: true })
     class ParamHelper {
-      index() {}
+      index() {
+        return undefined;
+      }
       helper(@Body() body: unknown) {
         return body;
       }
     }
-    expect(boot(ParamHelper)).toThrow(
-      'ParamHelper: parameter decorators on "helper", which is not a route',
-    );
+    expect(boot(ParamHelper)).toThrow('ParamHelper: parameter decorators on "helper", which is not a route');
   });
 
   it("exige decorator em todos os parâmetros quando algum tem", () => {
@@ -257,9 +293,7 @@ describe("createHandler (validação do controller)", () => {
         return id;
       }
     }
-    expect(boot(Posts)).toThrow(
-      'Posts: @Param("id") on "latest" is not in GET /api/users/:userId/posts/latest',
-    );
+    expect(boot(Posts)).toThrow('Posts: @Param("id") on "latest" is not in GET /api/users/:userId/posts/latest');
   });
 
   it("rejeita @Auth() em parâmetro de ação pública", () => {
@@ -271,9 +305,7 @@ describe("createHandler (validação do controller)", () => {
         return auth;
       }
     }
-    expect(boot(PublicAuth)).toThrow(
-      'PublicAuth: @Auth() parameter on "index", which is not protected by @Auth',
-    );
+    expect(boot(PublicAuth)).toThrow('PublicAuth: @Auth() parameter on "index", which is not protected by @Auth');
 
     @Controller("/a", { resource: true })
     class NoAuth {

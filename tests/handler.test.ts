@@ -21,7 +21,7 @@ import {
   type HttpContext,
 } from "../src/index.js";
 
-function request(method: string, path: string, body?: unknown, headers?: HeadersInit): Request {
+function request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Request {
   return new Request(`http://localhost${path}`, {
     method,
     headers: body === undefined ? headers : { "content-type": "application/json", ...headers },
@@ -44,7 +44,9 @@ class UsersController {
   update({ params }: HttpContext) {
     return { updated: params.id };
   }
-  destroy() {}
+  destroy() {
+    return undefined;
+  }
   @Get("/me")
   me() {
     return { me: true };
@@ -70,7 +72,7 @@ async function call(
 ) {
   const res = await handlers[method](request(method, path, body));
   const text = await res.text();
-  return { res, status: res.status, body: text ? JSON.parse(text) : undefined };
+  return { res, status: res.status, body: text ? (JSON.parse(text) as unknown) : undefined };
 }
 
 afterEach(() => {
@@ -158,7 +160,9 @@ describe("erros de configuração", () => {
     @Controller("/users")
     class Me {
       @Get("/me")
-      profile() {}
+      profile() {
+        return undefined;
+      }
     }
     expect(() => createHandler({ controllers: [Users, Me] })).toThrow(
       "duplicate route GET /api/users/me: UsersController.me and Me.profile",
@@ -169,7 +173,9 @@ describe("erros de configuração", () => {
     @Controller("/users")
     class Other {
       @Get("/:userId")
-      find() {}
+      find() {
+        return undefined;
+      }
     }
     expect(() => createHandler({ controllers: [Users, Other] })).toThrow(
       /duplicate route GET \/api\/users\/:userId: UsersController.show and Other.find/,
@@ -180,13 +186,15 @@ describe("erros de configuração", () => {
     @Controller("/dup")
     class Dup {
       @Get("/x")
-      a() {}
+      a() {
+        return undefined;
+      }
       @Get("/x")
-      b() {}
+      b() {
+        return undefined;
+      }
     }
-    expect(() => createHandler({ controllers: [Dup] })).toThrow(
-      "duplicate route GET /api/dup/x: Dup.a and Dup.b",
-    );
+    expect(() => createHandler({ controllers: [Dup] })).toThrow("duplicate route GET /api/dup/x: Dup.a and Dup.b");
   });
 
   it("rejeita basePath/prefix sem barra inicial", () => {
@@ -203,7 +211,9 @@ describe("regras de resposta", () => {
       return { ok: true };
     }
     @Get("/nothing")
-    async nothing() {}
+    nothing() {
+      return Promise.resolve(undefined);
+    }
     @Get("/raw")
     raw() {
       return new Response("texto", { status: 418 });
@@ -341,7 +351,7 @@ describe("respostas automáticas", () => {
   });
 
   it("404/405 não são logados", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const handlers = createHandler({ controllers: [Users] });
     await call(handlers, "GET", "/api/nada");
     await call(handlers, "DELETE", "/api/users/7/archive");
@@ -368,7 +378,8 @@ describe("mapeamento de erros", () => {
     }
     @Get("/string")
     string() {
-      throw "não é Error";
+      const thrown: unknown = "não é Error";
+      throw thrown;
     }
   }
   const Fail = Failing;
@@ -377,8 +388,7 @@ describe("mapeamento de erros", () => {
     const api = createHandler({ controllers: [Fail] });
     const { status, body } = await call(api, "POST", "/api/fail/zod", { name: 1 });
     expect(status).toBe(422);
-    expect(body.error).toBe("Validation failed");
-    expect(body.issues[0].path).toEqual(["name"]);
+    expect(body).toMatchObject({ error: "Validation failed", issues: [{ path: ["name"] }] });
   });
 
   it("HTTPException usa status e mensagem", async () => {
@@ -390,7 +400,7 @@ describe("mapeamento de erros", () => {
   });
 
   it("outros erros viram 500 e são logados", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const api = createHandler({ controllers: [Fail] });
     expect(await call(api, "GET", "/api/fail/domain")).toMatchObject({
       status: 500,
@@ -416,12 +426,13 @@ describe("mapeamento de erros", () => {
   });
 
   it("onError devolvendo undefined segue para o mapeamento padrão sem console.error", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const seen: unknown[] = [];
     const api = createHandler({
       controllers: [Fail],
-      async onError(err) {
+      onError(err) {
         seen.push(err);
+        return Promise.resolve(undefined);
       },
     });
     expect((await call(api, "POST", "/api/fail/zod", {})).status).toBe(422);
@@ -432,7 +443,7 @@ describe("mapeamento de erros", () => {
   });
 
   it("erro dentro do onError vira 500 e loga os dois erros", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const hookError = new Error("hook");
     const api = createHandler({
       controllers: [Fail],
@@ -454,7 +465,9 @@ describe("mapeamento de erros", () => {
         throw new HTTPException(503, { message: "Indisponível" });
       }
       @Get()
-      go() {}
+      go() {
+        return undefined;
+      }
     }
     const api = createHandler({ controllers: [Broken] });
     expect(await call(api, "GET", "/api/broken")).toMatchObject({
@@ -475,7 +488,7 @@ describe("autenticação", () => {
     }
 
     @Public()
-    index({ auth }: HttpContext) {
+    index({ auth }: Partial<HttpContext>) {
       return { auth: auth ?? null };
     }
     @Public()
@@ -494,19 +507,19 @@ describe("autenticação", () => {
   @Controller("/ping")
   class PingController {
     @Get()
-    ping({ auth }: HttpContext) {
+    ping({ auth }: Partial<HttpContext>) {
       return { auth: auth ?? null };
     }
   }
 
   const Products = ProductsController;
   const Ping = PingController;
-  const users = { "token-1": { id: "1", role: "admin" as const } };
+  const users: Record<string, { id: string; role: "admin" | "user" }> = { "token-1": { id: "1", role: "admin" } };
 
   function handler(options: Partial<Parameters<typeof createHandler>[0]> = {}) {
-    const authenticate = vi.fn(async (req: Request) => {
+    const authenticate = vi.fn((req: Request) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
-      return users[token as keyof typeof users] ?? null;
+      return Promise.resolve(token ? (users[token] ?? null) : null);
     });
     const api = createHandler({ controllers: [Products, Ping], authenticate, ...options });
     return { api, authenticate };
@@ -515,7 +528,7 @@ describe("autenticação", () => {
   async function send(api: ReturnType<typeof createHandler>, method: "GET" | "POST", path: string, token?: string) {
     const headers = token ? { authorization: `Bearer ${token}` } : undefined;
     const res = await api[method](request(method, path, method === "POST" ? {} : undefined, headers));
-    return { res, status: res.status, body: await res.json() };
+    return { res, status: res.status, body: (await res.json()) as unknown };
   }
 
   it("rota protegida sem usuário vira 401 sem instanciar o controller", async () => {
@@ -537,7 +550,7 @@ describe("autenticação", () => {
     });
     expect((await send(api, "GET", "/api/products/mine", "token-1")).body).toEqual({ role: "admin" });
     expect(authenticate).toHaveBeenCalledTimes(2);
-    expect(authenticate.mock.calls[0]![0]).toBeInstanceOf(Request);
+    expect(authenticate.mock.calls[0]?.[0]).toBeInstanceOf(Request);
   });
 
   it("ações @Public e controllers sem @Auth não chamam authenticate", async () => {
@@ -566,12 +579,12 @@ describe("autenticação", () => {
       status: 401,
       body: { code: "UNAUTHORIZED" },
     });
-    expect(onError.mock.calls[0]![0]).toBeInstanceOf(UnauthorizedError);
-    expect(onError.mock.calls[0]![0]).toBeInstanceOf(HTTPException);
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(UnauthorizedError);
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(HTTPException);
   });
 
   it("erro lançado no authenticate passa pelo mapeamento", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const forbidden = handler({
       authenticate: () => {
         throw new HTTPException(403, { message: "Token revoked" });
@@ -582,9 +595,7 @@ describe("autenticação", () => {
       body: { error: "Token revoked" },
     });
     const broken = handler({
-      authenticate: async () => {
-        throw new Error("db down");
-      },
+      authenticate: () => Promise.reject(new Error("db down")),
     });
     expect((await send(broken.api, "POST", "/api/products")).status).toBe(500);
     expect(error).toHaveBeenCalledTimes(1);
@@ -610,7 +621,7 @@ describe("autenticação", () => {
         }
 
         @Public()
-        index({ auth }: HttpContext) {
+        index({ auth }: Partial<HttpContext>) {
           return { auth: auth ?? null };
         }
         show({ auth }: HttpContext) {
@@ -639,7 +650,7 @@ describe("autenticação", () => {
         { id: "1", role: "admin" },
         { controller: "OrdersController", action: "approve", method: "POST", path: "/api/orders/:id/approve" },
       );
-      expect(Object.isFrozen(spy.mock.calls[0]![1])).toBe(true);
+      expect(Object.isFrozen(spy.mock.calls[0]?.[1])).toBe(true);
     });
 
     it("false vira 403 sem instanciar o controller", async () => {
@@ -653,7 +664,7 @@ describe("autenticação", () => {
     });
 
     it("aceita função assíncrona e só libera com true estrito", async () => {
-      const allowed = build(async (auth) => auth.role === "admin");
+      const allowed = build((auth) => Promise.resolve(auth.role === "admin"));
       expect((await send(allowed.api, "GET", "/api/orders/1", "token-1")).body).toEqual({ viewer: "1" });
       const truthy = build((() => 1) as unknown as AuthGuard);
       expect((await send(truthy.api, "GET", "/api/orders/1", "token-1")).status).toBe(403);
@@ -685,7 +696,7 @@ describe("autenticação", () => {
         status: 403,
         body: { code: "FORBIDDEN" },
       });
-      expect(onError.mock.calls[0]![0]).toBeInstanceOf(HTTPException);
+      expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(HTTPException);
     });
 
     it("erro lançado no guard passa pelo mapeamento", async () => {
@@ -702,7 +713,9 @@ describe("autenticação", () => {
       @Controller("/g", { resource: true })
       @Auth(() => true)
       class Guarded {
-        index() {}
+        index() {
+          return undefined;
+        }
       }
       expect(() => createHandler({ controllers: [Guarded] })).toThrow(
         "Guarded: @Auth requires `authenticate` in createHandler",

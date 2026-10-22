@@ -64,7 +64,7 @@ const api = createHandler({ controllers: [Items], authenticate: () => user });
 
 async function call(method: "GET" | "POST", path: string, init: RequestInit = {}) {
   const res = await api[method](new Request(`http://localhost/api/items${path}`, { method, ...init }));
-  return { status: res.status, body: await res.json() };
+  return { status: res.status, body: (await res.json()) as unknown };
 }
 
 describe("parameter decorators", () => {
@@ -92,9 +92,10 @@ describe("parameter decorators", () => {
 
   it("@Body injeta corpo bruto ou validado", async () => {
     const json = { headers: { "content-type": "application/json" } };
-    expect(
-      (await call("POST", "/7", { ...json, body: JSON.stringify({ name: "a", extra: 1 }) })).body,
-    ).toEqual({ raw: { name: "a", extra: 1 }, body: { name: "a" } });
+    expect((await call("POST", "/7", { ...json, body: JSON.stringify({ name: "a", extra: 1 }) })).body).toEqual({
+      raw: { name: "a", extra: 1 },
+      body: { name: "a" },
+    });
     expect(await call("POST", "/7", { ...json, body: JSON.stringify({ name: 1 }) })).toMatchObject({
       status: 422,
       body: { error: "Validation failed" },

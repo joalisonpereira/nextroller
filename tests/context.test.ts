@@ -23,7 +23,7 @@ async function run(probe: Probe, init: RequestInit & { url?: string; path?: `/${
 }
 
 async function json(res: Response) {
-  return { status: res.status, body: await res.json() };
+  return { status: res.status, body: (await res.json()) as unknown };
 }
 
 describe("HttpContext", () => {
@@ -70,8 +70,7 @@ describe("HttpContext", () => {
 
   it("validate.body aceita application/x-www-form-urlencoded", async () => {
     const res = await run(
-      ({ validate }) =>
-        validate.body(z.object({ name: z.string(), age: z.coerce.number(), tag: z.array(z.string()) })),
+      ({ validate }) => validate.body(z.object({ name: z.string(), age: z.coerce.number(), tag: z.array(z.string()) })),
       {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
