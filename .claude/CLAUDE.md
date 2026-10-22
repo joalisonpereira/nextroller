@@ -45,7 +45,7 @@ examples/next-app/  # app Next de exemplo
 - `hono`: dependency, detalhe interno. Só vaza em `ctx.raw` e `HTTPException` (reexportado, base das classes de erro).
 - `zod`: **peerDependency** (o `instanceof z.ZodError` do handler precisa da mesma cópia do app).
 - `chalk`: só no CLI. O runtime nunca importa `chalk` nem nada de `src/cli/`.
-- `next`: nunca importado. `createHandler()` usa só `Request`/`Response` da Web API.
+- `next`: **peerDependency**. Só `NextRequest`/`NextResponse` de `next/server.js` (com `.js`: o pacote não tem `exports`). `ctx.request`, `authenticate`, `onError` e `@Req()` recebem `NextRequest`; helpers de `response` devolvem `NextResponse`. Handlers aceitam `Request` puro e embrulham em `NextRequest`. `react`/`react-dom` são devDependency só porque `next/server.js` os carrega nos testes.
 
 Toolchain: `tsc`, Vitest (Vite 8/Oxc) e Next 16 (SWC/Turbopack, dev e build) leem `experimentalDecorators` do tsconfig, sem plugin.
 
