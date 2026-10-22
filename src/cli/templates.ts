@@ -6,48 +6,41 @@ export interface ModuleNames {
 }
 
 export function controllerTemplate({ pascal, camel, kebab }: ModuleNames): string {
-  return `import { defineController, type HttpContext, type Route } from "nextroller";
+  return `import { Body, Controller, Ctx, NotFoundError, Param, Query, type HttpContext } from "nextroller";
 import { ${pascal}Service } from "./service";
-import { schemas } from "./validator";
+import { validator, type Validated } from "./validator";
 
-class ${pascal}Controller {
-  static route: Route<${pascal}Controller> = {
-    prefix: "/${kebab}",
-    resource: true,
-  };
-
+@Controller("/${kebab}", { resource: true })
+export default class ${pascal}Controller {
   constructor(private ${camel} = new ${pascal}Service()) {}
 
-  async index({ validate }: HttpContext) {
-    const { page } = validate.query(schemas.list);
+  async index(@Query(validator.list) { page }: Validated["list"]) {
     return this.${camel}.list(page);
   }
 
-  async show({ params, response }: HttpContext<"/:id">) {
-    const item = await this.${camel}.find(params.id);
-    return item ?? response.notFound();
+  async show(@Param("id") id: string) {
+    const item = await this.${camel}.find(id);
+    if (!item) throw new NotFoundError();
+    return item;
   }
 
-  async store({ validate, response }: HttpContext) {
-    const data = await validate.body(schemas.create);
+  async store(@Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
     return response.created(await this.${camel}.create(data));
   }
 
-  async update({ params, validate }: HttpContext<"/:id">) {
-    return this.${camel}.update(params.id, await validate.body(schemas.update));
+  async update(@Param("id") id: string, @Body(validator.update) data: Validated["update"]) {
+    return this.${camel}.update(id, data);
   }
 
-  async destroy({ params }: HttpContext<"/:id">) {
-    await this.${camel}.remove(params.id);
+  async destroy(@Param("id") id: string) {
+    await this.${camel}.remove(id);
   }
 }
-
-export default defineController(${pascal}Controller);
 `;
 }
 
 export function serviceTemplate({ pascal }: ModuleNames): string {
-  return `import type { Input } from "./validator";
+  return `import type { Validated } from "./validator";
 
 export class ${pascal}Service {
   async list(page: number): Promise<unknown[]> {
@@ -58,11 +51,11 @@ export class ${pascal}Service {
     throw new Error("Not implemented");
   }
 
-  async create(data: Input["create"]): Promise<unknown> {
+  async create(data: Validated["create"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
-  async update(id: string, data: Input["update"]): Promise<unknown> {
+  async update(id: string, data: Validated["update"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
@@ -74,14 +67,14 @@ export class ${pascal}Service {
 }
 
 export function validatorTemplate(): string {
-  return `import type { InferSchemas } from "nextroller";
+  return `import type { InferValidator } from "nextroller";
 import { z } from "zod";
 
 const create = z.object({
   name: z.string().min(1),
 });
 
-export const schemas = {
+export const validator = {
   create,
   update: create.partial(),
   list: z.object({
@@ -89,6 +82,6 @@ export const schemas = {
   }),
 };
 
-export type Input = InferSchemas<typeof schemas>;
+export type Validated = InferValidator<typeof validator>;
 `;
 }

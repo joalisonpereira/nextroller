@@ -1,4 +1,4 @@
-import type { InferSchemas } from "nextroller";
+import type { InferValidator } from "nextroller";
 import { z } from "zod";
 
 const create = z.object({
@@ -6,7 +6,7 @@ const create = z.object({
   email: z.string().email(),
 });
 
-export const schemas = {
+export const validator = {
   create,
   update: create.partial(),
   list: z.object({
@@ -14,4 +14,4 @@ export const schemas = {
   }),
 };
 
-export type Input = InferSchemas<typeof schemas>;
+export type Validated = InferValidator<typeof validator>;

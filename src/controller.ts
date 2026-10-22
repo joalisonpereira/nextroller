@@ -1,155 +1,116 @@
 import type { AuthData } from "./context.js";
+import { readMeta, type Middleware, type ParamSource } from "./metadata.js";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Path = `/${string}`;
-export type ActionDef = readonly [Method | readonly Method[], Path];
 
-type IsAny<T> = 0 extends 1 & T ? true : false;
+export type ControllerClass = new (...args: any[]) => object;
 
-type Methods<T> = {
-  [K in keyof T]: T[K] extends (...a: any[]) => any ? K : never;
-}[keyof T] &
-  string;
-
-type ActionName<T> = IsAny<T> extends true ? string : Methods<T>;
-
-type ActionMap<T> = IsAny<T> extends true
-  ? { readonly [action: string]: ActionDef }
-  : [Methods<T>] extends [never]
-    ? { readonly [action: string]: never }
-    : { readonly [K in Methods<T>]?: ActionDef };
-
-export interface AuthRoute<T = any> {
+export interface AuthRoute {
   readonly controller: string;
-  readonly action: ActionName<T>;
+  readonly action: string;
   readonly method: Method;
   readonly path: string;
 }
 
-export type AuthGuard<T = any> = {
-  bivarianceHack(auth: AuthData, route: AuthRoute<T>): boolean | Promise<boolean>;
-}["bivarianceHack"];
+export type AuthGuard = (auth: AuthData, route: AuthRoute) => boolean | Promise<boolean>;
 
-export interface Route<T = any> {
-  readonly prefix: Path;
-  readonly resource?: boolean;
-  readonly actions?: ActionMap<T>;
-  readonly auth?: boolean | AuthGuard<T>;
-  readonly public?: readonly ActionName<T>[];
+export interface ControllerAction {
+  action: string;
+  routes: { method: Method; path: Path }[];
+  isProtected: boolean;
+  guard: AuthGuard | undefined;
+  middlewares: Middleware[];
+  params: (ParamSource | undefined)[];
 }
 
-export interface ControllerClass {
-  new (...args: any[]): object;
-  readonly route: Route;
+export interface ControllerDefinition {
+  prefix: Path;
+  auth: boolean;
+  actions: ControllerAction[];
 }
-
-type ActionsOf<C> = C extends { route: { actions: infer A } } ? A : {};
-type HasPublic<C> = C extends { route: { public: readonly string[] } } ? true : false;
-
-type CheckActions<C extends ControllerClass> = {
-  route: {
-    actions?: {
-      [K in Exclude<keyof ActionsOf<C>, Methods<InstanceType<C>>>]: never;
-    };
-  };
-};
-
-type CheckPublic<C extends ControllerClass> = HasPublic<C> extends true
-  ? { route: { auth: true | AuthGuard; public: readonly Methods<InstanceType<C>>[] } }
-  : {};
 
 export const METHODS: readonly Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-export const RESOURCE_ACTIONS: Readonly<Record<string, ActionDef>> = {
-  index: ["GET", "/"],
-  store: ["POST", "/"],
-  show: ["GET", "/:id"],
-  update: [["PUT", "PATCH"], "/:id"],
-  destroy: ["DELETE", "/:id"],
+export const RESOURCE_ACTIONS: Readonly<Record<string, { methods: readonly Method[]; path: Path }>> = {
+  index: { methods: ["GET"], path: "/" },
+  store: { methods: ["POST"], path: "/" },
+  show: { methods: ["GET"], path: "/:id" },
+  update: { methods: ["PUT", "PATCH"], path: "/:id" },
+  destroy: { methods: ["DELETE"], path: "/:id" },
 };
-
-export function defineController<C extends ControllerClass>(
-  controller: C & CheckActions<C> & CheckPublic<C>,
-): C {
-  validateController(controller);
-  return controller;
-}
 
 export function controllerName(controller: unknown): string {
   return (typeof controller === "function" && controller.name) || "<anonymous>";
 }
 
-function isPath(value: unknown): value is Path {
+export function isPath(value: unknown): value is Path {
   return typeof value === "string" && value.startsWith("/");
 }
 
-function isMethod(value: unknown): value is Method {
-  return METHODS.includes(value as Method);
-}
-
-export function validateController(controller: unknown): asserts controller is ControllerClass {
+export function describeController(controller: unknown): ControllerDefinition {
   const name = controllerName(controller);
   const fail = (message: string) => new Error(`[nextroller] ${name}: ${message}`);
 
   if (typeof controller !== "function") {
     throw fail("controller must be a class");
   }
-
-  const route = (controller as { route?: unknown }).route;
-  if (typeof route !== "object" || route === null) {
-    throw fail("missing `static route`");
+  const meta = readMeta(controller);
+  if (!meta || meta.prefix === undefined) {
+    throw fail("missing @Controller decorator");
   }
 
-  const { prefix, resource, actions, auth, public: publicActions } = route as Record<string, unknown>;
-  if (!isPath(prefix)) {
-    throw fail("`route.prefix` must be a string starting with \"/\"");
+  const proto = controller.prototype as Record<string, unknown>;
+  const routed = new Map<string, { method: Method; path: Path }[]>();
+  if (meta.resource) {
+    for (const [action, { methods, path }] of Object.entries(RESOURCE_ACTIONS)) {
+      if (typeof proto[action] === "function") {
+        routed.set(action, methods.map((method) => ({ method, path })));
+      }
+    }
   }
-  if (resource !== undefined && typeof resource !== "boolean") {
-    throw fail("`route.resource` must be a boolean");
-  }
-  if (auth !== undefined && typeof auth !== "boolean" && typeof auth !== "function") {
-    throw fail("`route.auth` must be a boolean or a function");
-  }
-  if (
-    actions !== undefined &&
-    (typeof actions !== "object" || actions === null || Array.isArray(actions))
-  ) {
-    throw fail("`route.actions` must be an object");
+  for (const [action, { routes }] of meta.actions) {
+    if (routes.length > 0) routed.set(action, routes);
   }
 
-  const proto = (controller as { prototype: Record<string, unknown> }).prototype;
-  for (const [method, def] of Object.entries(actions ?? {})) {
-    if (typeof proto[method] !== "function") {
-      throw fail(`action "${method}" is not a controller method`);
-    }
-    if (!Array.isArray(def) || def.length !== 2) {
-      throw fail(`action "${method}" must be a [method, path] tuple`);
-    }
-    const [verbs, path] = def as unknown[];
-    const list = Array.isArray(verbs) ? verbs : [verbs];
-    if (list.length === 0 || !list.every(isMethod)) {
-      throw fail(`action "${method}" has an invalid method: ${JSON.stringify(verbs)}`);
-    }
-    if (!isPath(path)) {
-      throw fail(`action "${method}" has an invalid path: ${JSON.stringify(path)}`);
-    }
+  for (const [action, info] of meta.actions) {
+    if (routed.has(action)) continue;
+    if (info.public) throw fail(`@Public on "${action}", which is not a route`);
+    if (info.middlewares.length > 0) throw fail(`@Use on "${action}", which is not a route`);
+    if (info.params.length > 0) throw fail(`parameter decorators on "${action}", which is not a route`);
   }
 
-  if (publicActions === undefined) {
-    return;
+  if (routed.size === 0) {
+    throw fail("controller does not define any route");
   }
-  if (!Array.isArray(publicActions) || !publicActions.every((a) => typeof a === "string")) {
-    throw fail("`route.public` must be an array of method names");
-  }
-  if (auth !== true && typeof auth !== "function") {
-    throw fail("`route.public` requires `route.auth`");
-  }
-  for (const action of publicActions as string[]) {
-    const routed =
-      Object.hasOwn(actions ?? {}, action) ||
-      (resource === true && Object.hasOwn(RESOURCE_ACTIONS, action));
-    if (!routed || typeof proto[action] !== "function") {
-      throw fail(`public action "${action}" is not a route of this controller`);
+
+  const actions: ControllerAction[] = [];
+  for (const [action, routes] of routed) {
+    const info = meta.actions.get(action);
+    const isPublic = info?.public ?? false;
+    const params = info?.params ?? [];
+    if (isPublic && !meta.auth) {
+      throw fail(`@Public on "${action}" requires @Auth on the controller`);
     }
+    const isProtected = meta.auth !== undefined && !isPublic;
+    if (!isProtected && params.some((source) => source?.kind === "auth")) {
+      throw fail(`@Auth() parameter on "${action}", which is not protected by @Auth`);
+    }
+    const arity = (proto[action] as Function).length;
+    if (params.length > 0) {
+      for (let index = 0; index < Math.max(arity, params.length); index++) {
+        if (!params[index]) throw fail(`parameter ${index} of "${action}" has no decorator`);
+      }
+    }
+    actions.push({
+      action,
+      routes,
+      isProtected,
+      guard: isProtected ? meta.auth?.guard : undefined,
+      middlewares: [...meta.middlewares, ...(info?.middlewares ?? [])],
+      params,
+    });
   }
+
+  return { prefix: meta.prefix, auth: meta.auth !== undefined, actions };
 }
