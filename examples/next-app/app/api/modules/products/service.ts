@@ -1,4 +1,4 @@
-import type { Input } from "./validator";
+import type { Validated } from "./validator";
 
 export class ProductsService {
   async list(page: number): Promise<unknown[]> {
@@ -9,11 +9,11 @@ export class ProductsService {
     throw new Error("Not implemented");
   }
 
-  async create(ownerId: string, data: Input["create"]): Promise<unknown> {
+  async create(ownerId: string, data: Validated["create"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
-  async update(id: string, data: Input["update"]): Promise<unknown> {
+  async update(id: string, data: Validated["update"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
