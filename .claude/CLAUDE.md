@@ -81,7 +81,7 @@ examples/next-app/  # app Next de exemplo consumindo a lib
   - `Response` → retornado como está (gerado via `ctx.response.*`)
 - **Controllers importados estaticamente e instanciados por request.** Sem import lazy (necessário para ler a metadata; no catch-all todos os controllers já estão no mesmo bundle). Sem estado compartilhado entre requests.
 - **Dependência pesada via `import()` dentro do método**, nunca no topo do controller/service. Protege o cold start sem precisar de lazy no router.
-- **DI via parâmetro default no construtor:** `constructor(private users = new UsersService()) {}`. Em teste, passar fake no construtor.
+- **DI via parâmetro default no construtor:** `constructor(private service = new UsersService()) {}`. Em teste, passar fake no construtor.
 - **Auth declarado no controller, verificado pelo app.** `@Auth` diz que as ações exigem usuário (com exceções em `@Public`) e, opcionalmente, quem pode entrar (`@Auth(guard)`); `createHandler({ authenticate })` diz como resolver o usuário. A lib nunca lê token, cookie ou sessão.
 - **Controllers não usam try/catch para validação.** `ZodError` vira 422 no handler central.
 - **Erros de configuração falham na inicialização**, não na request: argumentos inválidos de decorator falham no import do módulo; regras que cruzam decorators falham no `createHandler`.
@@ -174,12 +174,30 @@ Regras:
 ### Middleware (`middlewares` e `@Use`)
 
 ```ts
-export type Middleware = (
-  ctx: HttpContext,
-  next: () => Promise<Response>,
-) => Response | Promise<Response>;
+export interface Middleware {
+  run(ctx: HttpContext, next: () => Promise<Response>): Response | Promise<Response>;
+}
+
+// aceito em @Use(...) e createHandler({ middlewares: [...] })
+type MiddlewareEntry = Middleware | (new () => Middleware);
 ```
 
+```ts
+export class LoggerMiddleware implements Middleware {
+  async run({ request }: HttpContext, next: () => Promise<Response>) {
+    const res = await next();
+    console.log(request.method, request.url, res.status);
+    return res;
+  }
+}
+
+@Use(LoggerMiddleware)                   // classe: instanciada pela lib a cada request
+@Use(new CorsMiddleware({ origin: "*" })) // instância: usada como está (compartilhada entre requests)
+```
+
+- Padrão de classe com `run(ctx, next)`, como controllers. Passar a **classe** (`@Use(LoggerMiddleware)`) faz a lib instanciar a cada request, sem estado compartilhado; o construtor não recebe argumentos (DI via parâmetro default, como nos controllers). Middleware com configuração: passar uma **instância** (`new CorsMiddleware({ ... })`), criada uma vez e reutilizada.
+- Funções soltas `(ctx, next) => ...` não são aceitas (erro de compilação e de inicialização). Objeto literal com `run` é aceito (é uma instância).
+- Erro no construtor do middleware → `onError`/mapeamento padrão.
 - Três níveis: globais (`createHandler({ middlewares: [...] })`), do controller (`@Use` na classe) e do método (`@Use` no método).
 - Ordem: globais → controller → método → auth (`authenticate` + guard) → instancia controller → ação. Dentro de cada nível, ordem de declaração (array na ordem; decorators de cima para baixo; `@Use(a, b)` roda `a` antes de `b`).
 - Roda **antes** da auth (log/CORS veem 401/403). `ctx.auth` é `undefined` antes de `next()` e preenchido depois (o `ctx` é o mesmo objeto passado à ação).
@@ -187,8 +205,8 @@ export type Middleware = (
 - Pode encerrar sem chamar `next()` devolvendo uma `Response`, ou alterar a resposta devolvida por `next()`.
 - Erro lançado pelo middleware → `onError`/mapeamento padrão. Chamar `next()` duas vezes ou devolver algo que não é `Response` → erro (500).
 - Em 404/405 (sem rota casada) só os globais rodam, envolvendo a resposta de erro (já com `Allow` no 405). `ctx.params` vem vazio. `@Use` não roda.
-- `middlewares` que não é array de funções → erro no `createHandler`. `@Use` em método que não é rota → erro no `createHandler`.
-- Só função. Middleware compartilhado no app fica em `app/api/middlewares/`.
+- `middlewares` com item que não é classe/objeto com `run()` → erro no `createHandler`. `@Use` com item inválido → erro na decoração. `@Use` em método que não é rota → erro no `createHandler`.
+- Middleware compartilhado no app fica em `app/api/middlewares/`, um por arquivo (`logger.ts` → `LoggerMiddleware`).
 - Global para o que vale em toda a API (log, request id, CORS); `@Use` para o que é do controller/ação.
 
 ### Onde cada erro é pego
@@ -200,13 +218,14 @@ export type Middleware = (
 | guard que não devolve `boolean` ou com `auth` incompatível com `Register` | compile time          |
 | `@Auth(guard)` em parâmetro, `@Auth` em método           | compile time e decoração               |
 | `@Body("x")` (string em vez de schema)                   | compile time e decoração               |
-| decorator em membro `static` ou construtor, `@Controller`/`@Auth` repetido, verbo+path repetido no método, dois decorators no mesmo parâmetro, `@Use` com não-função | decoração (import do módulo) |
+| decorator em membro `static` ou construtor, `@Controller`/`@Auth` repetido, verbo+path repetido no método, dois decorators no mesmo parâmetro, `@Use` com item que não é middleware | decoração (import do módulo) |
 | classe sem `@Controller`, controller sem rotas           | runtime, no `createHandler`            |
 | `@Public` sem `@Auth`, `@Public`/`@Use`/parameter decorator em método que não é rota | runtime, no `createHandler` |
 | parâmetro sem decorator, `@Param("k")` fora do path, `@Auth()` em ação não protegida | runtime, no `createHandler` |
 | rota duplicada (entre controllers ou métodos)            | runtime, no `createHandler`            |
 | `@Auth` sem `authenticate` no `createHandler`            | runtime, no `createHandler`            |
-| `middlewares` que não é array de funções                 | compile time e runtime, no `createHandler` |
+| `middlewares`/`@Use` com função solta ou classe cujo construtor exige argumentos | compile time |
+| `middlewares` com item que não é middleware              | runtime, no `createHandler`            |
 
 ### `createHandler`
 
@@ -216,7 +235,7 @@ createHandler({
   basePath?: string,              // default "/api" (onde o catch-all está montado)
   prefix?: string,                // prefixo global, ex.: "/v1"
   authenticate?: Authenticate,    // resolve o usuário das rotas com @Auth (ver "Autenticação")
-  middlewares?: Middleware[],     // globais: rodam em todas as requests, inclusive 404/405
+  middlewares?: MiddlewareEntry[], // globais (classe ou instância): rodam em todas as requests, inclusive 404/405
   onError?: ErrorHook,            // hook de erro customizável (ver abaixo)
 }) => { GET, POST, PUT, PATCH, DELETE }
 
@@ -349,15 +368,15 @@ A lib não conhece token, sessão nem cookie. Ela só aplica a regra declarada n
 @Controller("/products", { resource: true })
 @Auth()
 export default class ProductsController {
-  constructor(private products = new ProductsService()) {}
+  constructor(private service = new ProductsService()) {}
 
   @Public()
   async index() {
-    return this.products.list();
+    return this.service.list();
   }
 
   async store(@Auth() auth: User, @Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
-    return response.created(await this.products.create(auth.id, data));
+    return response.created(await this.service.create(auth.id, data));
   }
 }
 
@@ -480,8 +499,8 @@ app/
   api/
     [[...path]]/
       route.ts                  # único route handler; chama createHandler
-    middlewares/                # opcional: middlewares compartilhados (@Use)
-      log.ts
+    middlewares/                # opcional: middlewares compartilhados (classes)
+      logger.ts
     modules/
       <modulo>/
         controller.ts           # export default class com @Controller
@@ -506,7 +525,7 @@ Regras:
 
 ```ts
 import { createHandler } from "nextroller";
-import { logRequest } from "@/app/api/middlewares/log";
+import { LoggerMiddleware } from "@/app/api/middlewares/logger";
 import UsersController from "@/app/api/modules/users/controller";
 import { UsersService } from "@/app/api/modules/users/service";
 
@@ -514,7 +533,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
   basePath: "/api",
   prefix: "/v1",
   controllers: [UsersController],
-  middlewares: [logRequest],
+  middlewares: [LoggerMiddleware],
   authenticate: async (request) =>
     new UsersService().findByToken(request.headers.get("authorization")),
 });
@@ -544,29 +563,29 @@ import { validator, type Validated } from "./validator";
 @Controller("/users", { resource: true })
 @Auth()
 export default class UsersController {
-  constructor(private users = new UsersService()) {}
+  constructor(private service = new UsersService()) {}
 
   async index(@Query(validator.list) { page }: Validated["list"]) {
-    return this.users.list(page);
+    return this.service.list(page);
   }
 
   async show(@Param("id") id: string) {
-    const user = await this.users.find(id);
+    const user = await this.service.find(id);
     if (!user) throw new NotFoundError("User not found");
     return user;
   }
 
   @Public()
   async store(@Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
-    return response.created(await this.users.create(data));
+    return response.created(await this.service.create(data));
   }
 
   async update(@Param("id") id: string, @Body(validator.update) data: Validated["update"]) {
-    return this.users.update(id, data);
+    return this.service.update(id, data);
   }
 
   async destroy(@Param("id") id: string) {
-    await this.users.remove(id);
+    await this.service.remove(id);
   }
 
   @Get("/me")
@@ -576,13 +595,13 @@ export default class UsersController {
 
   @Post("/:id/activate")
   async activate(@Param("id") id: string) {
-    await this.users.activate(id);
+    await this.service.activate(id);
   }
 
   @Put("/:id/archive")
   @Patch("/:id/archive")
   async archive(@Param("id") id: string) {
-    await this.users.archive(id);
+    await this.service.archive(id);
   }
 }
 ```
@@ -591,22 +610,26 @@ Equivalente sem parameter decorators (método recebe `HttpContext`):
 
 ```ts
 async show({ params, response }: HttpContext<"/:id">) {
-  const user = await this.users.find(params.id);
+  const user = await this.service.find(params.id);
   return user ?? response.notFound("User not found");
 }
 ```
 
-`app/api/middlewares/log.ts` (registrado como global no `route.ts`; para um controller só, `@Use(logRequest)` na classe):
+`app/api/middlewares/logger.ts` (registrado como global no `route.ts`; para um controller só, `@Use(LoggerMiddleware)` na classe):
 
 ```ts
-import type { Middleware } from "nextroller";
+import type { HttpContext, Middleware } from "nextroller";
 
-export const logRequest: Middleware = async ({ request }, next) => {
-  const start = Date.now();
-  const res = await next();
-  console.log(`${request.method} ${new URL(request.url).pathname} ${res.status} ${Date.now() - start}ms`);
-  return res;
-};
+export class LoggerMiddleware implements Middleware {
+  async run({ request }: HttpContext, next: () => Promise<Response>) {
+    const start = Date.now();
+    const res = await next();
+    console.log(
+      `${request.method} ${new URL(request.url).pathname} ${res.status} ${Date.now() - start}ms`,
+    );
+    return res;
+  }
+}
 ```
 
 `app/api/modules/users/validator.ts`:
@@ -673,6 +696,7 @@ Critérios:
 - **Nomes gerados:**
   - arquivos `controller.ts`, `service.ts` e `validator.ts` (sem prefixo; o módulo é a pasta);
   - classe `OrderItemsController` e serviço `OrderItemsService` (PascalCase do nome);
+  - service injetado como `private service = new OrderItemsService()` (sempre `service`, o módulo já está no nome da classe);
   - `@Controller("/order-items", { resource: true })` (kebab-case do nome);
   - objeto `validator` com `create`, `update` e `list` e tipo `Validated = InferValidator<typeof validator>`, que o usuário estende à vontade.
 - **Conteúdo dos templates:**

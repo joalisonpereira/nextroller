@@ -18,7 +18,7 @@ import {
   type ControllerClass,
   type Method,
 } from "./controller.js";
-import type { Middleware, ParamSource } from "./metadata.js";
+import { isMiddleware, middlewareInstance, type MiddlewareEntry, type ParamSource } from "./metadata.js";
 import { resolveArgs } from "./params.js";
 
 export type ErrorHook = (
@@ -35,7 +35,7 @@ export interface HandlerOptions {
   basePath?: string;
   prefix?: string;
   authenticate?: Authenticate;
-  middlewares?: Middleware[];
+  middlewares?: MiddlewareEntry[];
   onError?: ErrorHook;
 }
 
@@ -50,7 +50,7 @@ interface RouteEntry {
   action: string;
   auth: boolean;
   guard: AuthGuard | undefined;
-  middlewares: Middleware[];
+  middlewares: MiddlewareEntry[];
   params: (ParamSource | undefined)[];
 }
 
@@ -138,7 +138,7 @@ function checkConflicts(routes: RouteEntry[]): void {
 }
 
 function compose(
-  middlewares: Middleware[],
+  middlewares: MiddlewareEntry[],
   ctx: HttpContext,
   run: () => Promise<Response>,
 ): Promise<Response> {
@@ -148,9 +148,9 @@ function compose(
       throw new Error("[nextroller] middleware called next() more than once");
     }
     called = index;
-    const middleware = middlewares[index];
-    if (!middleware) return run();
-    const res = await middleware(ctx, () => dispatch(index + 1));
+    const entry = middlewares[index];
+    if (!entry) return run();
+    const res = await middlewareInstance(entry).run(ctx, () => dispatch(index + 1));
     if (!(res instanceof Response)) {
       throw new Error("[nextroller] middleware must return a Response");
     }
@@ -174,8 +174,10 @@ function errorResponse(
 
 export function createHandler(options: HandlerOptions): Handlers {
   const { controllers, authenticate, onError, middlewares: globals = [] } = options;
-  if (!Array.isArray(globals) || !globals.every((middleware) => typeof middleware === "function")) {
-    throw new Error("[nextroller] `middlewares` must be an array of functions");
+  if (!Array.isArray(globals) || !globals.every(isMiddleware)) {
+    throw new Error(
+      "[nextroller] `middlewares` must be an array of classes or objects with a run() method",
+    );
   }
   const base = joinPaths(
     checkBase("basePath", options.basePath ?? "/api"),

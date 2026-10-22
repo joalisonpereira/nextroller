@@ -38,7 +38,6 @@ function moduleNames(input: string): ModuleNames {
   return {
     module,
     pascal,
-    camel: pascal[0]!.toLowerCase() + pascal.slice(1),
     kebab: words.join("-"),
   };
 }

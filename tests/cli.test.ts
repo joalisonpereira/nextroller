@@ -78,7 +78,8 @@ describe("nextroller make:module", () => {
     const controller = fs.readFileSync(path.join(dir, "controller.ts"), "utf8");
     expect(controller).toContain('@Controller("/order-items", { resource: true })');
     expect(controller).toContain("export default class OrderItemsController {");
-    expect(controller).toContain("private orderItems = new OrderItemsService()");
+    expect(controller).toContain("private service = new OrderItemsService()");
+    expect(controller).toContain("this.service.list(page)");
     expect(controller).toContain('async show(@Param("id") id: string)');
     expect(controller).toContain("throw new NotFoundError();");
     expect(controller).not.toContain("static route");

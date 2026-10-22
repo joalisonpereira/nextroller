@@ -16,7 +16,7 @@ import {
 
 type AnyDecorator = (...args: any[]) => void;
 const loose = (decorator: unknown) => decorator as AnyDecorator;
-const pass: Middleware = (_ctx, next) => next();
+const pass: Middleware = { run: (_ctx, next) => next() };
 const boot = (controller: unknown) => () =>
   createHandler({ controllers: [controller as new () => object], authenticate: () => ({ id: "1", role: "admin" }) });
 
@@ -113,12 +113,21 @@ describe("decorators (validação na decoração)", () => {
     }).toThrow("A: @Auth guard must be a function");
   });
 
-  it("rejeita @Use com valor que não é função", () => {
+  it("rejeita @Use com valor que não é middleware", () => {
+    const message = "@Use middleware 1 must be a class or an object with a run() method";
     expect(() => {
       @Use(pass, "log" as unknown as Middleware)
       class A {}
       void A;
-    }).toThrow("A: @Use middleware 1 is not a function");
+    }).toThrow(`A: ${message}`);
+
+    expect(() => {
+      class B {
+        @Use(pass, (async () => new Response()) as unknown as Middleware)
+        go() {}
+      }
+      void B;
+    }).toThrow(`B.go: ${message}`);
   });
 
   it("rejeita parameter decorators inválidos", () => {

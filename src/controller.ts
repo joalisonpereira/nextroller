@@ -1,5 +1,5 @@
 import type { AuthData } from "./context.js";
-import { readMeta, type Middleware, type ParamSource } from "./metadata.js";
+import { readMeta, type MiddlewareEntry, type ParamSource } from "./metadata.js";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Path = `/${string}`;
@@ -20,7 +20,7 @@ export interface ControllerAction {
   routes: { method: Method; path: Path }[];
   isProtected: boolean;
   guard: AuthGuard | undefined;
-  middlewares: Middleware[];
+  middlewares: MiddlewareEntry[];
   params: (ParamSource | undefined)[];
 }
 
