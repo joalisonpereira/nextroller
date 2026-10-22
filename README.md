@@ -61,7 +61,7 @@ Built on [Hono](https://hono.dev) (internal routing) and [Zod](https://zod.dev) 
 npm install nextroller zod
 ```
 
-`zod` is a peer dependency (v3.25+ or v4). The library uses TypeScript **legacy decorators**, so enable them in your app's `tsconfig.json`:
+`next` (v15 or v16) and `zod` (v3.25+ or v4) are peer dependencies. The library uses TypeScript **legacy decorators**, so enable them in your app's `tsconfig.json`:
 
 ```jsonc
 {
@@ -221,7 +221,7 @@ async show({ params }: HttpContext<"/:id">) {}
 | `@Query()` / `@Query("k")` / `@Query(schema)`    | whole query / key `k` / validated query                  |
 | `@Param()` / `@Param("k")` / `@Param(schema)`    | all params / param `k` / validated params                |
 | `@Header()` / `@Header("k")` / `@Header(schema)` | all headers / header `k` (lowercase) / validated headers |
-| `@Req()`                                         | original `Request`                                       |
+| `@Req()`                                         | the `NextRequest`                                        |
 | `@Ctx()`                                         | the whole `HttpContext`                                  |
 | `@Auth()`                                        | user resolved by `authenticate`                          |
 
@@ -263,7 +263,7 @@ Context fields:
 
 | field      | content                                                               |
 | ---------- | --------------------------------------------------------------------- |
-| `request`  | original `Request` (a `NextRequest` at runtime)                       |
+| `request`  | `NextRequest` (`nextUrl`, `cookies`, ...)                             |
 | `auth`     | value returned by `authenticate` (`undefined` on routes without auth) |
 | `params`   | path params                                                           |
 | `query`    | query string (a repeated key becomes `string[]`)                      |
@@ -345,9 +345,9 @@ Helpers on `ctx.response` (or via `@Ctx()`):
 | `redirect(url, status?)`      | `302` (accepts `301`, `303`, `307`, `308`) |
 | `status(code, data?, init?)`  | any status                                 |
 
-`init` is `{ headers?: HeadersInit }`. For cookies: `response.ok(data, { headers: { "Set-Cookie": "..." } })`; for several, pass a `Headers` built with `append`.
+`init` is `{ headers?: HeadersInit }`.
 
-Helpers **return** a `Response` (`return response.forbidden()`). To stop from anywhere, including a service, **throw** an exception.
+Helpers **return** a `NextResponse` (`return response.forbidden()`), so `response.ok(data).cookies.set(...)` works. To stop from anywhere, including a service, **throw** an exception.
 
 ## Errors
 
@@ -516,14 +516,14 @@ export class LoggerMiddleware implements Middleware {
 
 ## `createHandler`
 
-| option         | type                                 | default  | description                             |
-| -------------- | ------------------------------------ | -------- | --------------------------------------- |
-| `controllers`  | `Class[]`                            |          | classes with `@Controller`              |
-| `basePath`     | `string`                             | `"/api"` | where the catch-all is mounted          |
-| `prefix`       | `string`                             |          | global prefix, e.g. `"/v1"`             |
-| `authenticate` | `(request) => user \| null`          |          | required if any controller uses `@Auth` |
-| `middlewares`  | `MiddlewareEntry[]`                  |          | global middlewares                      |
-| `onError`      | `(err, request) => Response \| void` |          | error hook                              |
+| option         | type                                     | default  | description                             |
+| -------------- | ---------------------------------------- | -------- | --------------------------------------- |
+| `controllers`  | `Class[]`                                |          | classes with `@Controller`              |
+| `basePath`     | `string`                                 | `"/api"` | where the catch-all is mounted          |
+| `prefix`       | `string`                                 |          | global prefix, e.g. `"/v1"`             |
+| `authenticate` | `(request: NextRequest) => user \| null` |          | required if any controller uses `@Auth` |
+| `middlewares`  | `MiddlewareEntry[]`                      |          | global middlewares                      |
+| `onError`      | `(err, request) => Response \| void`     |          | error hook                              |
 
 Returns `{ GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS }` to export from `route.ts`.
 
@@ -606,7 +606,7 @@ Configuration errors never reach a request:
 
 ## Notes
 
-- The library doesn't import `next`: `createHandler` works with Web API `Request`/`Response`. Use `request as NextRequest` if you need `nextUrl`/`cookies`.
+- The handlers accept a plain `Request` (e.g. in tests) and wrap it in a `NextRequest`; the `NextRequest` sent by Next is used as is.
 - Production builds minify class names: the guard's `route.controller` and messages that include a controller name reflect the minified name.
 - `ctx.auth` is typed as non-optional even in `@Public` actions (where its value is `undefined`).
 - Controller inheritance isn't supported: metadata belongs to the class itself only.

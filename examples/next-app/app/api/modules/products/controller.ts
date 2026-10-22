@@ -16,7 +16,7 @@ export default class ProductsController {
     return item ?? response.notFound();
   }
 
-  async store({ auth, validate, response }: HttpContext) {
+  async store({ auth, validate, response,request }: HttpContext) {
     const data = await validate.body(validator.create);
     return response.created(await this.service.create(auth.id, data));
   }

@@ -1,5 +1,12 @@
+import type { NextRequest, NextResponse } from "next/server.js";
 import { expectTypeOf } from "vitest";
-import type { HttpContext } from "../../src/index.js";
+import type { Authenticate, ErrorHook, HttpContext } from "../../src/index.js";
+
+expectTypeOf<HttpContext["request"]>().toEqualTypeOf<NextRequest>();
+expectTypeOf<ReturnType<HttpContext["response"]["ok"]>>().toEqualTypeOf<NextResponse>();
+expectTypeOf<ReturnType<HttpContext["response"]["redirect"]>>().toEqualTypeOf<NextResponse>();
+expectTypeOf<Parameters<Authenticate>[0]>().toEqualTypeOf<NextRequest>();
+expectTypeOf<Parameters<ErrorHook>[1]>().toEqualTypeOf<NextRequest>();
 
 expectTypeOf<HttpContext["params"]>().toEqualTypeOf<Record<string, string>>();
 expectTypeOf<keyof HttpContext<"/me">["params"]>().toEqualTypeOf<never>();

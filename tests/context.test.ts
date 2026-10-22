@@ -1,3 +1,4 @@
+import { NextRequest, NextResponse } from "next/server.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Controller, Get, Post, createHandler, type HttpContext } from "../src/index.js";
@@ -45,6 +46,50 @@ describe("HttpContext", () => {
       method: "GET",
       hasRaw: true,
     });
+  });
+
+  it("request é NextRequest mesmo quando o handler recebe Request puro", async () => {
+    const res = await run(
+      ({ request }) => ({
+        isNext: request instanceof NextRequest,
+        pathname: request.nextUrl.pathname,
+        page: request.nextUrl.searchParams.get("page"),
+      }),
+      { url: "/9?page=2", path: "/:id" },
+    );
+    expect(await res.json()).toEqual({ isNext: true, pathname: "/api/probe/9", page: "2" });
+  });
+
+  it("reaproveita o NextRequest recebido do Next", async () => {
+    const incoming = new NextRequest("http://localhost/api/probe");
+    let received: unknown;
+    await handlerFor(({ request }) => {
+      received = request;
+    }).GET(incoming);
+    expect(received).toBe(incoming);
+  });
+
+  it("reaproveita NextRequest de outra cópia do Next sem embrulhar de novo", async () => {
+    class ForeignNextRequest extends Request {
+      nextUrl = new URL(this.url);
+    }
+    const incoming = new ForeignNextRequest("http://localhost/api/probe");
+    let received: unknown;
+    await handlerFor(({ request }) => {
+      received = request;
+    }).GET(incoming);
+    expect(incoming).not.toBeInstanceOf(NextRequest);
+    expect(received).toBe(incoming);
+  });
+
+  it("helpers de response devolvem NextResponse", async () => {
+    let created: unknown;
+    const res = await run(({ response }) => {
+      created = response.created({ ok: true });
+      return created;
+    });
+    expect(created).toBeInstanceOf(NextResponse);
+    expect(await json(res)).toEqual({ status: 201, body: { ok: true } });
   });
 
   it("validate.body faz parse do JSON", async () => {

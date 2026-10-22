@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { NextResponse, type NextRequest } from "next/server.js";
 import type { z } from "zod";
 
 export interface Register {}
@@ -39,12 +40,12 @@ export type PathParams<P extends string> = string extends P
   ? Record<string, string>
   : Simplify<RequiredParams<P> & OptionalParams<P>>;
 
-function json(data: unknown, status: number, init?: ResponseOptions): Response {
-  return Response.json(data, { status, headers: init?.headers });
+function json(data: unknown, status: number, init?: ResponseOptions): NextResponse {
+  return NextResponse.json(data, { status, headers: init?.headers });
 }
 
-function empty(status: number, init?: ResponseOptions): Response {
-  return new Response(null, { status, headers: init?.headers });
+function empty(status: number, init?: ResponseOptions): NextResponse {
+  return new NextResponse(null, { status, headers: init?.headers });
 }
 
 function queryValues(c: Context): Record<string, string | string[]> {
@@ -70,7 +71,7 @@ export function createContext<P extends string = string>(c: Context) {
   const headers = c.req.header();
 
   return {
-    request: c.req.raw,
+    request: c.req.raw as NextRequest,
     raw: c,
     auth: undefined as unknown as AuthData,
     params,
@@ -91,31 +92,31 @@ export function createContext<P extends string = string>(c: Context) {
       },
     },
     response: {
-      ok(data: unknown, init?: ResponseOptions): Response {
+      ok(data: unknown, init?: ResponseOptions): NextResponse {
         return json(data, 200, init);
       },
-      created(data: unknown, init?: ResponseOptions): Response {
+      created(data: unknown, init?: ResponseOptions): NextResponse {
         return json(data, 201, init);
       },
-      noContent(init?: ResponseOptions): Response {
+      noContent(init?: ResponseOptions): NextResponse {
         return empty(204, init);
       },
-      badRequest(message = "Bad request", init?: ResponseOptions): Response {
+      badRequest(message = "Bad request", init?: ResponseOptions): NextResponse {
         return json({ error: message }, 400, init);
       },
-      forbidden(message = "Forbidden", init?: ResponseOptions): Response {
+      forbidden(message = "Forbidden", init?: ResponseOptions): NextResponse {
         return json({ error: message }, 403, init);
       },
-      notFound(message = "Not found", init?: ResponseOptions): Response {
+      notFound(message = "Not found", init?: ResponseOptions): NextResponse {
         return json({ error: message }, 404, init);
       },
-      redirect(url: string, status: RedirectStatus = 302): Response {
+      redirect(url: string, status: RedirectStatus = 302): NextResponse {
         if (!REDIRECT_STATUSES.includes(status)) {
           throw new Error(`[nextroller] invalid redirect status: ${String(status)}`);
         }
-        return new Response(null, { status, headers: { Location: url } });
+        return new NextResponse(null, { status, headers: { Location: url } });
       },
-      status(code: number, data?: unknown, init?: ResponseOptions): Response {
+      status(code: number, data?: unknown, init?: ResponseOptions): NextResponse {
         return data === undefined ? empty(code, init) : json(data, code, init);
       },
     },

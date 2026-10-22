@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
+import { NextRequest } from "next/server.js";
 import { z } from "zod";
 import { createContext, type AuthData, type HttpContext } from "./context.js";
 import { ForbiddenError, MethodNotAllowedError, RouteNotFoundError, UnauthorizedError } from "./errors.js";
@@ -16,9 +17,9 @@ import {
 import { isMiddleware, middlewareInstance, type MiddlewareEntry, type ParamSource } from "./metadata.js";
 import { resolveArgs } from "./params.js";
 
-export type ErrorHook = (err: unknown, request: Request) => Response | undefined | Promise<Response | undefined>;
+export type ErrorHook = (err: unknown, request: NextRequest) => Response | undefined | Promise<Response | undefined>;
 
-export type Authenticate = (request: Request) => AuthData | null | undefined | Promise<AuthData | null | undefined>;
+export type Authenticate = (request: NextRequest) => AuthData | null | undefined | Promise<AuthData | null | undefined>;
 
 export interface HandlerOptions {
   controllers: ControllerClass[];
@@ -146,6 +147,10 @@ function toResponse(result: unknown): Response {
   return Response.json(result);
 }
 
+function toNextRequest(request: Request): NextRequest {
+  return "nextUrl" in request ? (request as NextRequest) : new NextRequest(request);
+}
+
 function errorResponse(status: number, body: Record<string, unknown>): Response {
   return Response.json(body, { status });
 }
@@ -170,7 +175,7 @@ export function createHandler(options: HandlerOptions): Handlers {
   const app = new Hono();
   const matcher = new TrieRouter<true>();
 
-  const handleError = async (err: unknown, request: Request): Promise<Response> => {
+  const handleError = async (err: unknown, request: NextRequest): Promise<Response> => {
     if (onError) {
       try {
         const res = await onError(err, request);
@@ -206,7 +211,7 @@ export function createHandler(options: HandlerOptions): Handlers {
       const run = async (): Promise<Response> => {
         try {
           if (auth) {
-            const resolved: AuthData | null | undefined = await authenticate?.(c.req.raw);
+            const resolved: AuthData | null | undefined = await authenticate?.(ctx.request);
             if (resolved == null) {
               throw new UnauthorizedError();
             }
@@ -221,38 +226,39 @@ export function createHandler(options: HandlerOptions): Handlers {
           const args = await resolveArgs(params, ctx);
           return toResponse(await method.apply(instance, args));
         } catch (err) {
-          return handleError(err, c.req.raw);
+          return handleError(err, ctx.request);
         }
       };
       try {
         return await compose([...globals, ...middlewares], ctx, run);
       } catch (err) {
-        return handleError(err, c.req.raw);
+        return handleError(err, ctx.request);
       }
     });
   }
 
   app.notFound(async (c) => {
+    const ctx = createContext(c);
     const allow = METHODS.filter((m) => matcher.match(m, c.req.path)[0].length > 0);
     const run = async (): Promise<Response> => {
       if (c.req.method === "OPTIONS" && allow.length > 0) {
         return new Response(null, { status: 204, headers: { Allow: allow.join(", ") } });
       }
       const err = allow.length > 0 ? new MethodNotAllowedError(allow) : new RouteNotFoundError();
-      const res = await handleError(err, c.req.raw);
+      const res = await handleError(err, ctx.request);
       if (allow.length > 0 && !res.headers.has("Allow")) {
         res.headers.set("Allow", allow.join(", "));
       }
       return res;
     };
     try {
-      return await compose(globals, createContext(c), run);
+      return await compose(globals, ctx, run);
     } catch (err) {
-      return handleError(err, c.req.raw);
+      return handleError(err, ctx.request);
     }
   });
 
-  const handle: RouteHandler = async (request) => app.fetch(request);
+  const handle: RouteHandler = async (request) => app.fetch(toNextRequest(request));
   return {
     GET: handle,
     POST: handle,
