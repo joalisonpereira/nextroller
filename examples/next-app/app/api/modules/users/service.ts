@@ -1,5 +1,5 @@
 import { HTTPException } from "nextroller";
-import type { CreateUser, UpdateUser } from "./validator";
+import type { Input } from "./validator";
 
 export interface User {
   id: string;
@@ -40,7 +40,7 @@ export class UsersService {
     return [...users.values()].find((u) => u.token === token) ?? null;
   }
 
-  async create(data: CreateUser) {
+  async create(data: Input["create"]) {
     const id = String(nextId++);
     const user: User = {
       id,
@@ -53,7 +53,7 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, data: UpdateUser) {
+  async update(id: string, data: Input["update"]) {
     const user = this.require(id);
     Object.assign(user, data);
     return user;

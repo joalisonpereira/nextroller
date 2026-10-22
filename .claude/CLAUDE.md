@@ -473,7 +473,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
 ```ts
 import { defineController, type HttpContext, type Route } from "nextroller";
 import { UsersService } from "./service";
-import { createUser, updateUser, listUsers } from "./validator";
+import { schemas } from "./validator";
 
 class UsersController {
   static route: Route<UsersController> = {
@@ -491,7 +491,7 @@ class UsersController {
   constructor(private users = new UsersService()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = validate.query(listUsers);
+    const { page } = validate.query(schemas.list);
     return this.users.list(page);
   }
 
@@ -501,12 +501,12 @@ class UsersController {
   }
 
   async store({ validate, response }: HttpContext) {
-    const data = await validate.body(createUser);
+    const data = await validate.body(schemas.create);
     return response.created(await this.users.create(data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.users.update(params.id, await validate.body(updateUser));
+    return this.users.update(params.id, await validate.body(schemas.update));
   }
 
   async destroy({ params }: HttpContext<"/:id">) {
@@ -532,16 +532,23 @@ export default defineController(UsersController);
 `app/api/modules/users/validator.ts`:
 
 ```ts
+import type { InferSchemas } from "nextroller";
 import { z } from "zod";
 
-export const createUser = z.object({
+const create = z.object({
   name: z.string().min(1),
   email: z.string().email(),
 });
-export const updateUser = createUser.partial();
-export const listUsers = z.object({
-  page: z.coerce.number().min(1).default(1),
-});
+
+export const schemas = {
+  create,
+  update: create.partial(),
+  list: z.object({
+    page: z.coerce.number().min(1).default(1),
+  }),
+};
+
+export type Input = InferSchemas<typeof schemas>;
 ```
 
 ## CLI

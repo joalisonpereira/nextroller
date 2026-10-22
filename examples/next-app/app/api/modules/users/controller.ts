@@ -1,6 +1,6 @@
 import { defineController, type HttpContext, type Route } from "nextroller";
 import { UsersService } from "./service";
-import { createUser, updateUser, listUsers } from "./validator";
+import { schemas } from "./validator";
 
 class UsersController {
   static route: Route<UsersController> = {
@@ -18,7 +18,7 @@ class UsersController {
   constructor(private users = new UsersService()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = validate.query(listUsers);
+    const { page } = validate.query(schemas.list);
     return this.users.list(page);
   }
 
@@ -28,12 +28,12 @@ class UsersController {
   }
 
   async store({ validate, response }: HttpContext) {
-    const data = await validate.body(createUser);
+    const data = await validate.body(schemas.create);
     return response.created(await this.users.create(data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.users.update(params.id, await validate.body(updateUser));
+    return this.users.update(params.id, await validate.body(schemas.update));
   }
 
   async destroy({ params }: HttpContext<"/:id">) {
