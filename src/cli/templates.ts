@@ -1,39 +1,38 @@
 export interface ModuleNames {
   module: string;
   pascal: string;
-  camel: string;
   kebab: string;
 }
 
-export function controllerTemplate({ pascal, camel, kebab }: ModuleNames): string {
+export function controllerTemplate({ pascal, kebab }: ModuleNames): string {
   return `import { Body, Controller, Ctx, NotFoundError, Param, Query, type HttpContext } from "nextroller";
 import { ${pascal}Service } from "./service";
 import { validator, type Validated } from "./validator";
 
 @Controller("/${kebab}", { resource: true })
 export default class ${pascal}Controller {
-  constructor(private ${camel} = new ${pascal}Service()) {}
+  constructor(private service = new ${pascal}Service()) {}
 
   async index(@Query(validator.list) { page }: Validated["list"]) {
-    return this.${camel}.list(page);
+    return this.service.list(page);
   }
 
   async show(@Param("id") id: string) {
-    const item = await this.${camel}.find(id);
+    const item = await this.service.find(id);
     if (!item) throw new NotFoundError();
     return item;
   }
 
   async store(@Body(validator.create) data: Validated["create"], @Ctx() { response }: HttpContext) {
-    return response.created(await this.${camel}.create(data));
+    return response.created(await this.service.create(data));
   }
 
   async update(@Param("id") id: string, @Body(validator.update) data: Validated["update"]) {
-    return this.${camel}.update(id, data);
+    return this.service.update(id, data);
   }
 
   async destroy(@Param("id") id: string) {
-    await this.${camel}.remove(id);
+    await this.service.remove(id);
   }
 }
 `;
@@ -83,5 +82,16 @@ export const validator = {
 };
 
 export type Validated = InferValidator<typeof validator>;
+`;
+}
+
+export function middlewareTemplate({ pascal }: ModuleNames): string {
+  return `import type { HttpContext, Middleware } from "nextroller";
+
+export class ${pascal}Middleware implements Middleware {
+  async run(ctx: HttpContext, next: () => Promise<Response>) {
+    return next();
+  }
+}
 `;
 }

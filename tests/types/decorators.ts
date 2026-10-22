@@ -13,11 +13,33 @@ import {
   Query,
   Req,
   Use,
+  createHandler,
   type HttpContext,
   type Middleware,
 } from "../../src/index.js";
 
-const log: Middleware = async (_ctx, next) => next();
+const log: Middleware = { run: (_ctx, next) => next() };
+
+class Timing implements Middleware {
+  constructor(private readonly header = "x-time") {}
+
+  async run(_ctx: HttpContext, next: () => Promise<Response>) {
+    const res = await next();
+    res.headers.set(this.header, "1");
+    return res;
+  }
+}
+
+class NeedsArgs implements Middleware {
+  constructor(private readonly header: string) {}
+
+  run(_ctx: HttpContext, next: () => Promise<Response>) {
+    return next().then((res) => {
+      res.headers.set(this.header, "1");
+      return res;
+    });
+  }
+}
 
 @Controller("/users", { resource: true })
 @Use(log)
@@ -33,7 +55,7 @@ export class Users {
   }
 
   @Get("/me")
-  @Use(log, async (_ctx, next) => next())
+  @Use(log, Timing, new NeedsArgs("x-id"))
   me(_ctx: HttpContext) {
     return { secret: this.secret };
   }
@@ -117,3 +139,20 @@ export class BadMiddleware {
   @Use((ctx: HttpContext) => ctx.request)
   go() {}
 }
+
+export class FunctionMiddleware {
+  // @ts-expect-error
+  @Use(async (_ctx: HttpContext, next: () => Promise<Response>) => next())
+  go() {}
+}
+
+export class ClassWithArgs {
+  // @ts-expect-error
+  @Use(NeedsArgs)
+  go() {}
+}
+
+createHandler({ controllers: [Ping], middlewares: [log, Timing, new NeedsArgs("x-id")] });
+
+// @ts-expect-error
+createHandler({ controllers: [Ping], middlewares: [async (_ctx: HttpContext, next: () => Promise<Response>) => next()] });

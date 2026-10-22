@@ -2,14 +2,27 @@
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import { controllerTemplate, serviceTemplate, validatorTemplate, type ModuleNames } from "./templates.js";
+import { listRoutes } from "./routes.js";
+import { CliError, findAppDir } from "./shared.js";
+import {
+  controllerTemplate,
+  middlewareTemplate,
+  serviceTemplate,
+  validatorTemplate,
+  type ModuleNames,
+} from "./templates.js";
 
-const USAGE = `${chalk.bold("Usage:")} nextroller make:module ${chalk.cyan("<name>")}
+const USAGE = `${chalk.bold("Usage:")} nextroller ${chalk.cyan("<command>")}
 
-${chalk.bold("Example:")}
-  npx nextroller make:module order_items`;
+${chalk.bold("Commands:")}
+  make:module ${chalk.cyan("<name>")}       Create app/api/modules/<name>/ (controller, service, validator)
+  make:middleware ${chalk.cyan("<name>")}   Create app/api/middlewares/<name>.ts
+  routes                   List the API routes
 
-class CliError extends Error {}
+${chalk.bold("Examples:")}
+  npx nextroller make:module order_items
+  npx nextroller make:middleware rate_limit
+  npx nextroller routes`;
 
 function toSnakeCase(input: string): string {
   if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
@@ -38,17 +51,8 @@ function moduleNames(input: string): ModuleNames {
   return {
     module,
     pascal,
-    camel: pascal[0]!.toLowerCase() + pascal.slice(1),
     kebab: words.join("-"),
   };
-}
-
-function findAppDir(cwd: string): string {
-  for (const candidate of ["app", path.join("src", "app")]) {
-    const dir = path.join(cwd, candidate);
-    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir;
-  }
-  throw new CliError("Could not find an app/ or src/app/ directory in the current directory.");
 }
 
 function decoratorsEnabled(cwd: string): boolean {
@@ -110,14 +114,63 @@ function makeModule(input: string, cwd: string): void {
   }
 }
 
+function makeMiddleware(input: string, cwd: string): void {
+  const snake = toSnakeCase(input).replace(/(^|_)middleware$/, "");
+  if (snake === "") {
+    throw new CliError(`Invalid name "${input}".`);
+  }
+  const names = moduleNames(snake);
+  const appDir = findAppDir(cwd);
+  const target = path.join(appDir, "api", "middlewares", `${names.module}.ts`);
+  if (fs.existsSync(target)) {
+    throw new CliError(`Middleware already exists: ${path.relative(cwd, target)}`);
+  }
+
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, middlewareTemplate(names), { flag: "wx" });
+
+  const routeFile = path.relative(cwd, path.join(appDir, "api", "[[...path]]", "route.ts"));
+  const middleware = `${names.pascal}Middleware`;
+  const importPath = `@/app/api/middlewares/${names.module}`;
+
+  console.log(
+    [
+      "",
+      `${chalk.green("✔")} Middleware ${chalk.bold(middleware)} created`,
+      "",
+      `  ${chalk.green.bold("CREATE")}  ${path.relative(cwd, target)}`,
+      "",
+      `${chalk.bold("Next step:")} import it where you want to use it`,
+      "",
+      `    ${chalk.magenta("import")} { ${middleware} } ${chalk.magenta("from")} ${chalk.yellow(`"${importPath}"`)};`,
+      "",
+      `  Global, in ${chalk.cyan(routeFile)}:`,
+      "",
+      `    middlewares: [${chalk.dim("...")}, ${chalk.bold(middleware)}]`,
+      "",
+      "  On a controller or action:",
+      "",
+      `    @Use(${chalk.bold(middleware)})`,
+      "",
+    ].join("\n"),
+  );
+}
+
+const COMMANDS: Record<string, { args: number; run: (args: string[], cwd: string) => void }> = {
+  "make:module": { args: 1, run: ([name], cwd) => makeModule(name!, cwd) },
+  "make:middleware": { args: 1, run: ([name], cwd) => makeMiddleware(name!, cwd) },
+  routes: { args: 0, run: (_args, cwd) => listRoutes(cwd) },
+};
+
 function main(args: string[]): number {
-  const [command, name, ...rest] = args;
-  if (command !== "make:module" || name === undefined || rest.length > 0) {
+  const [command, ...rest] = args;
+  const spec = command !== undefined && Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
+  if (!spec || rest.length !== spec.args) {
     console.error(USAGE);
     return 1;
   }
   try {
-    makeModule(name, process.cwd());
+    spec.run(rest, process.cwd());
     return 0;
   } catch (err) {
     if (err instanceof CliError) {

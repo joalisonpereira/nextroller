@@ -4,8 +4,9 @@ import {
   addParam,
   controllerMeta,
   decoratorError,
+  isMiddleware,
   memberTarget,
-  type Middleware,
+  type MiddlewareEntry,
 } from "./metadata.js";
 
 export interface ControllerOptions {
@@ -84,11 +85,15 @@ export function Public(): MethodDecorator {
   };
 }
 
-export function Use(...middlewares: Middleware[]): ClassDecorator & MethodDecorator {
+export function Use(...middlewares: MiddlewareEntry[]): ClassDecorator & MethodDecorator {
   return ((target: object, key?: string | symbol, descriptor?: PropertyDescriptor) => {
-    const invalid = middlewares.findIndex((middleware) => typeof middleware !== "function");
+    const invalid = middlewares.findIndex((middleware) => !isMiddleware(middleware));
     if (invalid !== -1) {
-      throw decoratorError(target, key, `@Use middleware ${invalid} is not a function`);
+      throw decoratorError(
+        target,
+        key,
+        `@Use middleware ${invalid} must be a class or an object with a run() method`,
+      );
     }
     if (key === undefined) {
       controllerMeta(target as Function).middlewares.unshift(...middlewares);

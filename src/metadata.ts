@@ -2,10 +2,20 @@ import type { z } from "zod";
 import type { HttpContext } from "./context.js";
 import type { AuthGuard, Method, Path } from "./controller.js";
 
-export type Middleware = (
-  ctx: HttpContext,
-  next: () => Promise<Response>,
-) => Response | Promise<Response>;
+export interface Middleware {
+  run(ctx: HttpContext, next: () => Promise<Response>): Response | Promise<Response>;
+}
+
+export type MiddlewareEntry = Middleware | (new () => Middleware);
+
+export function isMiddleware(value: unknown): value is MiddlewareEntry {
+  const target = typeof value === "function" ? (value as { prototype?: unknown }).prototype : value;
+  return typeof (target as { run?: unknown } | null | undefined)?.run === "function";
+}
+
+export function middlewareInstance(entry: MiddlewareEntry): Middleware {
+  return typeof entry === "function" ? new entry() : entry;
+}
 
 export type ParamSource =
   | { kind: "body"; schema?: z.ZodType }
@@ -15,7 +25,7 @@ export type ParamSource =
 export interface ActionMeta {
   routes: { method: Method; path: Path }[];
   public: boolean;
-  middlewares: Middleware[];
+  middlewares: MiddlewareEntry[];
   params: (ParamSource | undefined)[];
 }
 
@@ -23,7 +33,7 @@ export interface ControllerMeta {
   prefix?: Path;
   resource: boolean;
   auth?: { guard?: AuthGuard };
-  middlewares: Middleware[];
+  middlewares: MiddlewareEntry[];
   actions: Map<string, ActionMeta>;
 }
 

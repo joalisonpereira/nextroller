@@ -4,18 +4,22 @@ import {
   Controller,
   Get,
   HTTPException,
+  Post,
   Public,
   Use,
   createHandler,
+  type HttpContext,
   type Middleware,
 } from "../src/index.js";
 
 function trace(name: string, events: string[]): Middleware {
-  return async (_ctx, next) => {
-    events.push(`${name}:before`);
-    const res = await next();
-    events.push(`${name}:after:${res.status}`);
-    return res;
+  return {
+    async run(_ctx, next) {
+      events.push(`${name}:before`);
+      const res = await next();
+      events.push(`${name}:after:${res.status}`);
+      return res;
+    },
   };
 }
 
@@ -100,15 +104,17 @@ describe("@Use", () => {
 
   it("middleware pode encerrar sem chamar next e alterar a resposta", async () => {
     const action = vi.fn();
-    const block: Middleware = () => Response.json({ blocked: true }, { status: 429 });
-    const header: Middleware = async (_ctx, next) => {
-      const res = await next();
-      res.headers.set("x-powered-by", "nextroller");
-      return res;
-    };
+    const block: Middleware = { run: () => Response.json({ blocked: true }, { status: 429 }) };
+    class PoweredBy implements Middleware {
+      async run(_ctx: HttpContext, next: () => Promise<Response>) {
+        const res = await next();
+        res.headers.set("x-powered-by", "nextroller");
+        return res;
+      }
+    }
 
     @Controller("/b")
-    @Use(header)
+    @Use(PoweredBy)
     class Blocked {
       @Get()
       @Use(block)
@@ -126,11 +132,13 @@ describe("@Use", () => {
 
   it("enxerga ctx.auth depois de next()", async () => {
     let seen: unknown = "unset";
-    const peek: Middleware = async (ctx, next) => {
-      const before = ctx.auth;
-      const res = await next();
-      seen = { before, after: ctx.auth };
-      return res;
+    const peek: Middleware = {
+      async run(ctx, next) {
+        const before = ctx.auth;
+        const res = await next();
+        seen = { before, after: ctx.auth };
+        return res;
+      },
     };
 
     @Controller("/p")
@@ -148,8 +156,10 @@ describe("@Use", () => {
   });
 
   it("erro no middleware passa pelo onError e mapeamento", async () => {
-    const failing: Middleware = () => {
-      throw new HTTPException(503, { message: "Maintenance" });
+    const failing: Middleware = {
+      run() {
+        throw new HTTPException(503, { message: "Maintenance" });
+      },
     };
     const onError = vi.fn();
 
@@ -169,11 +179,13 @@ describe("@Use", () => {
 
   it("rejeita next() repetido e retorno que não é Response", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const twice: Middleware = async (_ctx, next) => {
-      await next();
-      return next();
+    const twice: Middleware = {
+      async run(_ctx, next) {
+        await next();
+        return next();
+      },
     };
-    const nothing = (() => undefined) as unknown as Middleware;
+    const nothing = { run: () => undefined } as unknown as Middleware;
 
     @Controller("/x")
     class Broken {
@@ -193,6 +205,55 @@ describe("@Use", () => {
       "[nextroller] middleware called next() more than once",
       "[nextroller] middleware must return a Response",
     ]);
+  });
+
+  it("instancia middleware passado como classe a cada request", async () => {
+    const constructed = vi.fn();
+    class Stamp implements Middleware {
+      constructor(private readonly label = "stamped") {
+        constructed();
+      }
+      async run(_ctx: HttpContext, next: () => Promise<Response>) {
+        const res = await next();
+        res.headers.set("x-stamp", this.label);
+        return res;
+      }
+    }
+
+    @Controller("/s")
+    @Use(Stamp)
+    class Stamped {
+      @Get()
+      go() {}
+    }
+
+    const api = createHandler({ controllers: [Stamped], middlewares: [Stamp] });
+    expect(constructed).not.toHaveBeenCalled();
+    const res = await api.GET(new Request("http://localhost/api/s"));
+    expect(res.headers.get("x-stamp")).toBe("stamped");
+    await api.GET(new Request("http://localhost/api/s"));
+    expect(constructed).toHaveBeenCalledTimes(4);
+  });
+
+  it("erro no construtor do middleware passa pelo mapeamento", async () => {
+    class Broken implements Middleware {
+      constructor() {
+        throw new HTTPException(503, { message: "Unavailable" });
+      }
+      run(_ctx: HttpContext, next: () => Promise<Response>) {
+        return next();
+      }
+    }
+
+    @Controller("/broken-mw")
+    @Use(Broken)
+    class Target {
+      @Get()
+      go() {}
+    }
+
+    const res = await createHandler({ controllers: [Target] }).GET(new Request("http://localhost/api/broken-mw"));
+    expect(res.status).toBe(503);
   });
 
   it("@Use não roda em 404/405", async () => {
@@ -284,8 +345,10 @@ describe("middlewares globais (createHandler)", () => {
       controllers: [Ok],
       onError,
       middlewares: [
-        () => {
-          throw new HTTPException(503, { message: "Maintenance" });
+        {
+          run() {
+            throw new HTTPException(503, { message: "Maintenance" });
+          },
         },
       ],
     });
@@ -295,14 +358,54 @@ describe("middlewares globais (createHandler)", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it("tratam preflight OPTIONS (CORS)", async () => {
+    class Cors implements Middleware {
+      async run({ request }: HttpContext, next: () => Promise<Response>) {
+        const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST" };
+        if (request.method === "OPTIONS") {
+          return new Response(null, { status: 204, headers });
+        }
+        const res = await next();
+        for (const [key, value] of Object.entries(headers)) res.headers.set(key, value);
+        return res;
+      }
+    }
+
+    @Controller("/cors")
+    class Target {
+      @Post()
+      create() {
+        return { ok: true };
+      }
+    }
+
+    const api = createHandler({ controllers: [Target], middlewares: [Cors] });
+    const preflight = await api.OPTIONS(
+      new Request("http://localhost/api/cors", {
+        method: "OPTIONS",
+        headers: { origin: "http://app.test", "access-control-request-method": "POST" },
+      }),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+
+    const res = await api.POST(new Request("http://localhost/api/cors", { method: "POST" }));
+    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
   it("rejeita middlewares inválido na inicialização", () => {
     @Controller("/ok")
     class Ok {
       @Get()
       go() {}
     }
-    expect(() =>
-      createHandler({ controllers: [Ok], middlewares: ["log" as unknown as Middleware] }),
-    ).toThrow("[nextroller] `middlewares` must be an array of functions");
+    const invalid = (middleware: unknown) => () =>
+      createHandler({ controllers: [Ok], middlewares: [middleware as Middleware] });
+    const message = "[nextroller] `middlewares` must be an array of classes or objects with a run() method";
+    expect(invalid("log")).toThrow(message);
+    expect(invalid(async () => new Response())).toThrow(message);
+    expect(invalid(class NoRun {})).toThrow(message);
+    expect(invalid({})).toThrow(message);
   });
 });
