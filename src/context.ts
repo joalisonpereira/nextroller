@@ -5,7 +5,7 @@ export interface Register {}
 
 export type AuthData = Register extends { auth: infer A } ? A : unknown;
 
-export type InferSchemas<T extends Record<string, z.ZodType>> = {
+export type InferValidator<T extends Record<string, z.ZodType>> = {
   [K in keyof T]: z.infer<T[K]>;
 };
 

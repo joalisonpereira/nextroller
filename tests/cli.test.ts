@@ -89,9 +89,9 @@ describe("nextroller make:module", () => {
 
     const validator = fs.readFileSync(path.join(dir, "validator.ts"), "utf8");
     expect(validator).toContain("update: create.partial(),");
-    expect(validator).toContain("export type Input = InferSchemas<typeof schemas>;");
-    expect(controller).toContain("validate.body(schemas.create)");
-    expect(service).toContain('async create(data: Input["create"])');
+    expect(validator).toContain("export type Validated = InferValidator<typeof validator>;");
+    expect(controller).toContain("validate.body(validator.create)");
+    expect(service).toContain('async create(data: Validated["create"])');
 
     const result = typecheck();
     expect(result.stdout + result.stderr).toBe("");

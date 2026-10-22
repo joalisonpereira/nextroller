@@ -263,32 +263,32 @@ export type HttpContext<P extends string = string> = ReturnType<typeof createCon
 - `query` com chave repetida (`?tag=a&tag=b`) entrega `string[]` para aquela chave; chave única entrega `string`.
 - Uma origem por chamada; para validar body e query, duas chamadas.
 
-`InferSchemas` (só tipo):
+`InferValidator` (só tipo):
 
 ```ts
-export type InferSchemas<T extends Record<string, z.ZodType>> = { [K in keyof T]: z.infer<T[K]> };
+export type InferValidator<T extends Record<string, z.ZodType>> = { [K in keyof T]: z.infer<T[K]> };
 ```
 
 Tipa de uma vez um objeto de schemas. Padrão do `validator.ts` de cada módulo:
 
 ```ts
-import type { InferSchemas } from "nextroller";
+import type { InferValidator } from "nextroller";
 import { z } from "zod";
 
 const create = z.object({ name: z.string().min(1) });
 
-export const schemas = {
+export const validator = {
   create,
   update: create.partial(),
   list: z.object({ page: z.coerce.number().int().min(1).default(1) }),
 };
 
-export type Input = InferSchemas<typeof schemas>;
+export type Validated = InferValidator<typeof validator>;
 ```
 
-- Controller usa `schemas.create`; service tipa com `Input["create"]`. Schema novo em `schemas` ganha tipo sem editar mais nada.
+- Controller usa `validator.create`; service tipa com `Validated["create"]`. Schema novo em `validator` ganha tipo sem editar mais nada.
 - Schemas auxiliares (como `create`) ficam como `const` não exportado: escopo do módulo já os mantém privados.
-- `Input["list"]` é o tipo de saída do Zod (com `default` aplicado).
+- `Validated["list"]` é o tipo de saída do Zod (com `default` aplicado).
 
 `response.*`:
 
@@ -316,7 +316,7 @@ class ProductsController {
   };
 
   async store({ auth, validate, response }: HttpContext) {
-    const data = await validate.body(schemas.create);
+    const data = await validate.body(validator.create);
     return response.created(await this.products.create(auth.id, data));
   }
 }
@@ -473,7 +473,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
 ```ts
 import { defineController, type HttpContext, type Route } from "nextroller";
 import { UsersService } from "./service";
-import { schemas } from "./validator";
+import { validator } from "./validator";
 
 class UsersController {
   static route: Route<UsersController> = {
@@ -491,7 +491,7 @@ class UsersController {
   constructor(private users = new UsersService()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = validate.query(schemas.list);
+    const { page } = validate.query(validator.list);
     return this.users.list(page);
   }
 
@@ -501,12 +501,12 @@ class UsersController {
   }
 
   async store({ validate, response }: HttpContext) {
-    const data = await validate.body(schemas.create);
+    const data = await validate.body(validator.create);
     return response.created(await this.users.create(data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.users.update(params.id, await validate.body(schemas.update));
+    return this.users.update(params.id, await validate.body(validator.update));
   }
 
   async destroy({ params }: HttpContext<"/:id">) {
@@ -532,7 +532,7 @@ export default defineController(UsersController);
 `app/api/modules/users/validator.ts`:
 
 ```ts
-import type { InferSchemas } from "nextroller";
+import type { InferValidator } from "nextroller";
 import { z } from "zod";
 
 const create = z.object({
@@ -540,7 +540,7 @@ const create = z.object({
   email: z.string().email(),
 });
 
-export const schemas = {
+export const validator = {
   create,
   update: create.partial(),
   list: z.object({
@@ -548,7 +548,7 @@ export const schemas = {
   }),
 };
 
-export type Input = InferSchemas<typeof schemas>;
+export type Validated = InferValidator<typeof validator>;
 ```
 
 ## CLI
@@ -593,11 +593,11 @@ Critérios:
   - arquivos `controller.ts`, `service.ts` e `validator.ts` (sem prefixo; o módulo é a pasta);
   - classe `OrderItemsController` e serviço `OrderItemsService` (PascalCase do nome);
   - `prefix` `"/order-items"` (kebab-case do nome);
-  - objeto `schemas` com `create`, `update` e `list` e tipo `Input = InferSchemas<typeof schemas>`, que o usuário estende à vontade.
+  - objeto `validator` com `create`, `update` e `list` e tipo `Validated = InferValidator<typeof validator>`, que o usuário estende à vontade.
 - **Conteúdo dos templates:**
   - controller com `static route: Route<OrderItemsController> = { prefix, resource: true }`, os 5 métodos CRUD delegando ao service (`HttpContext<"/:id">` nos que leem `params.id`) e `export default defineController(...)`;
   - service com os métodos correspondentes lançando `new Error("Not implemented")`;
-  - validator com `const create` privado e `schemas = { create, update: create.partial(), list }` (paginado), mais `export type Input = InferSchemas<typeof schemas>`; controller usa `schemas.*` e service `Input["create"]`/`Input["update"]`.
+  - validator com `const create` privado e `validator = { create, update: create.partial(), list }` (paginado), mais `export type Validated = InferValidator<typeof validator>`; controller usa `validator.*` e service `Validated["create"]`/`Validated["update"]`.
 - O código gerado compila sem ajustes e segue as convenções (aspas duplas, ponto e vírgula, imports relativos dentro do módulo).
 - **Dependências:** `node:fs`, `node:path`, `chalk` (cores) e parse manual de `process.argv`. Nenhuma outra.
 - **Erros e saída:** em inglês, coloridos com `chalk` (✔ verde no sucesso, `CREATE` verde, path do `route.ts` em ciano, `✖ Error:` vermelho em `stderr`). Exit code `1` em erro. `chalk` desliga cores sozinho fora de TTY (pipe, CI, testes), então o texto puro é o contrato testado.
