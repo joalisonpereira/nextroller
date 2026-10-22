@@ -58,7 +58,7 @@ function stripComments(source: string): string {
   let out = "";
   let i = 0;
   while (i < source.length) {
-    const c = source[i]!;
+    const c = source.charAt(i);
     if (c === '"' || c === "'" || c === "`") {
       const end = skipString(source, i);
       out += source.slice(i, end);
@@ -81,7 +81,7 @@ function skipString(s: string, start: number): number {
   const quote = s[start];
   let i = start + 1;
   while (i < s.length) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === "\\") {
       i += 2;
     } else if (c === quote) {
@@ -96,10 +96,10 @@ function skipString(s: string, start: number): number {
 }
 
 function skipBalanced(s: string, start: number): number {
-  const stack = [OPENERS[s[start]!]!];
+  const stack = [OPENERS[s.charAt(start)] ?? ""];
   let i = start + 1;
   while (i < s.length && stack.length > 0) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === '"' || c === "'" || c === "`") {
       i = skipString(s, i);
       continue;
@@ -112,7 +112,7 @@ function skipBalanced(s: string, start: number): number {
 }
 
 function skipSpace(s: string, i: number): number {
-  while (i < s.length && /\s/.test(s[i]!)) i++;
+  while (i < s.length && /\s/.test(s.charAt(i))) i++;
   return i;
 }
 
@@ -125,7 +125,7 @@ function splitArgs(text: string): string[] {
   let depth = 0;
   let current = "";
   for (let i = 0; i < text.length; i++) {
-    const c = text[i]!;
+    const c = text.charAt(i);
     if (c === '"' || c === "'" || c === "`") {
       const end = skipString(text, i);
       current += text.slice(i, end);
@@ -159,7 +159,7 @@ function skipReturnType(s: string, start: number): number {
   let expectOperand = true;
   while (i < s.length) {
     i = skipSpace(s, i);
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === "{") {
       if (!expectOperand) return i;
       i = skipBalanced(s, i);
@@ -190,7 +190,7 @@ function skipAngles(s: string, start: number): number {
   let depth = 0;
   let i = start;
   while (i < s.length) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === "<") depth++;
     else if (c === ">" && s[i - 1] !== "=") {
       depth--;
@@ -210,7 +210,7 @@ function skipAngles(s: string, start: number): number {
 function skipStatement(s: string, start: number): number {
   let i = start;
   while (i < s.length) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === ";" || c === "\n") return i + 1;
     if (c === "}") return i;
     if (OPENERS[c]) i = skipBalanced(s, i);
@@ -227,7 +227,7 @@ function parseMembers(s: string, start: number, end: number): ParsedMember[] {
   while (i < end) {
     i = skipSpace(s, i);
     if (i >= end) break;
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === "@") {
       const read = readDecorator(s, i);
       decorators.push(read.decorator);
@@ -307,7 +307,7 @@ function parseClasses(source: string): ParsedClass[] {
   let isDefault = false;
   let i = 0;
   while (i < s.length) {
-    const c = s[i]!;
+    const c = s.charAt(i);
     if (c === '"' || c === "'" || c === "`") {
       i = skipString(s, i);
       continue;
@@ -366,13 +366,13 @@ function parseClasses(source: string): ParsedClass[] {
 function literal(text: string | undefined): string | undefined {
   if (text === undefined) return undefined;
   const match = /^(["'`])([\s\S]*)\1$/.exec(text.trim());
-  if (!match || (match[1] === "`" && match[2]!.includes("${"))) return undefined;
+  if (!match || (match[1] === "`" && match[2]?.includes("${"))) return undefined;
   return match[2];
 }
 
 function middlewareName(text: string): string {
-  const created = /^new\s+([\w$.]+)/.exec(text);
-  if (created) return created[1]!;
+  const created = /^new\s+([\w$.]+)/.exec(text)?.[1];
+  if (created) return created;
   return /^[\w$.]+$/.test(text) ? text : "<inline>";
 }
 
@@ -388,8 +388,9 @@ function objectProperties(text: string): Map<string, string> {
   for (const entry of splitArgs(body)) {
     const match = /^([\w$]+|"[^"]+"|'[^']+')\s*(?::([\s\S]*))?$/.exec(entry);
     if (!match) continue;
-    const key = match[1]!.replace(/^["']|["']$/g, "");
-    props.set(key, (match[2] ?? key).trim());
+    const [, rawKey = "", value] = match;
+    const key = rawKey.replace(/^["']|["']$/g, "");
+    props.set(key, (value ?? key).trim());
   }
   return props;
 }
@@ -397,16 +398,22 @@ function objectProperties(text: string): Map<string, string> {
 function parseImports(source: string): Map<string, { specifier: string; isDefault: boolean }> {
   const imports = new Map<string, { specifier: string; isDefault: boolean }>();
   const pattern = /import\s+(type\s+)?([\w$\s{},]+?)\s+from\s+["']([^"']+)["']/g;
-  for (const [, typeOnly, clause, specifier] of source.matchAll(pattern)) {
+  for (const [, typeOnly, clause = "", specifier = ""] of source.matchAll(pattern)) {
     if (typeOnly) continue;
-    const named = /\{([\s\S]*)\}/.exec(clause!)?.[1];
-    const defaultName = clause!.replace(/\{[\s\S]*\}/, "").replace(/,/g, "").trim();
+    const named = /\{([\s\S]*)\}/.exec(clause)?.[1];
+    const defaultName = clause
+      .replace(/\{[\s\S]*\}/, "")
+      .replace(/,/g, "")
+      .trim();
     if (defaultName && /^[\w$]+$/.test(defaultName)) {
-      imports.set(defaultName, { specifier: specifier!, isDefault: true });
+      imports.set(defaultName, { specifier, isDefault: true });
     }
     for (const part of named?.split(",") ?? []) {
-      const [original, alias] = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
-      if (original) imports.set((alias ?? original).trim(), { specifier: specifier!, isDefault: false });
+      const [original, alias] = part
+        .trim()
+        .replace(/^type\s+/, "")
+        .split(/\s+as\s+/);
+      if (original) imports.set((alias ?? original).trim(), { specifier, isDefault: false });
     }
   }
   return imports;
@@ -416,7 +423,7 @@ function aliasRoots(cwd: string): string[] {
   const file = path.join(cwd, "tsconfig.json");
   if (fs.existsSync(file)) {
     const match = /"@\/\*"\s*:\s*\[([^\]]*)\]/.exec(fs.readFileSync(file, "utf8"));
-    const targets = [...(match?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]!.replace(/\*$/, ""));
+    const targets = [...(match?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(([, target = ""]) => target.replace(/\*$/, ""));
     if (targets.length > 0) return targets.map((target) => path.resolve(cwd, target));
   }
   return [cwd];
@@ -455,7 +462,9 @@ function compareRows(a: RouteRow, b: RouteRow): number {
   const sa = a.path.split("/");
   const sb = b.path.split("/");
   for (let i = 0; i < Math.min(sa.length, sb.length); i++) {
-    const diff = segmentRank(sa[i]!) - segmentRank(sb[i]!) || sa[i]!.localeCompare(sb[i]!);
+    const x = sa[i] ?? "";
+    const y = sb[i] ?? "";
+    const diff = segmentRank(x) - segmentRank(y) || x.localeCompare(y);
     if (diff !== 0) return diff;
   }
   return sa.length - sb.length || METHODS.indexOf(a.method) - METHODS.indexOf(b.method);
@@ -480,23 +489,22 @@ function controllerRows(
   }
   const resource = /\bresource\s*:\s*true\b/.test(controller.args[1] ?? "");
   const auth = find(parsed.decorators, "Auth");
-  const classMiddlewares = parsed.decorators
-    .filter((d) => d.name === "Use")
-    .flatMap((d) => d.args.map(middlewareName));
+  const classMiddlewares = parsed.decorators.filter((d) => d.name === "Use").flatMap((d) => d.args.map(middlewareName));
 
   const rows: RouteRow[] = [];
   for (const method of parsed.methods) {
-    const verbs = method.decorators.filter((d) => VERBS[d.name]);
-    const routes: { method: Method; path: string }[] = verbs.map((d) => {
+    const routes: { method: Method; path: string }[] = method.decorators.flatMap((d) => {
+      const verb = VERBS[d.name];
+      if (!verb) return [];
       const value = d.args[0] === undefined ? "/" : literal(d.args[0]);
       if (value === undefined) {
         warn(`${parsed.name}.${method.name}: @${d.name} path is not a string literal; shown as "<dynamic>".`);
       }
-      return { method: VERBS[d.name]!, path: value ?? "/<dynamic>" };
+      return [{ method: verb, path: value ?? "/<dynamic>" }];
     });
-    if (routes.length === 0 && resource && Object.hasOwn(RESOURCE_ACTIONS, method.name)) {
-      const { methods, path: resourcePath } = RESOURCE_ACTIONS[method.name]!;
-      routes.push(...methods.map((verb) => ({ method: verb, path: resourcePath })));
+    const resourceAction = Object.hasOwn(RESOURCE_ACTIONS, method.name) ? RESOURCE_ACTIONS[method.name] : undefined;
+    if (routes.length === 0 && resource && resourceAction) {
+      routes.push(...resourceAction.methods.map((verb) => ({ method: verb, path: resourceAction.path })));
     }
     const isPublic = method.decorators.some((d) => d.name === "Public");
     const authLabel = !auth ? "-" : isPublic ? "public" : auth.args.length > 0 ? "auth + guard" : "auth";
@@ -529,15 +537,14 @@ const METHOD_COLORS: Record<Method, (text: string) => string> = {
 
 function printTable(rows: RouteRow[]): void {
   const header = ["METHOD", "PATH", "HANDLER", "AUTH", "MIDDLEWARES"];
-  const cells = rows.map((row) => [
-    row.method,
-    row.path,
-    row.handler,
-    row.auth,
-    row.middlewares.length > 0 ? row.middlewares.join(", ") : "-",
-  ]);
-  const widths = header.map((title, col) => Math.max(title.length, ...cells.map((cell) => cell[col]!.length)));
-  const pad = (text: string, col: number) => (col === header.length - 1 ? text : text.padEnd(widths[col]!));
+  const cells = rows.map((row) => ({
+    row,
+    texts: [row.method, row.path, row.handler, row.auth, row.middlewares.length > 0 ? row.middlewares.join(", ") : "-"],
+  }));
+  const widths = header.map((title, col) =>
+    Math.max(title.length, ...cells.map(({ texts }) => (texts[col] ?? "").length)),
+  );
+  const pad = (text: string, col: number) => (col === header.length - 1 ? text : text.padEnd(widths[col] ?? 0));
   const colorize = (text: string, col: number, row: RouteRow) => {
     if (col === 0) return METHOD_COLORS[row.method](text);
     if (col === 1) return text.replace(/:[\w$]+(\{[^}]*\})?\??/g, (param) => chalk.cyan(param));
@@ -548,12 +555,11 @@ function printTable(rows: RouteRow[]): void {
   const lines = [
     "",
     `  ${header.map((title, col) => chalk.bold(pad(title, col))).join("  ")}`,
-    ...cells.map((cell, index) => {
-      const row = rows[index]!;
-      return `  ${cell.map((text, col) => colorize(pad(text, col), col, row)).join("  ")}`.trimEnd();
-    }),
+    ...cells.map(({ row, texts }) =>
+      `  ${texts.map((text, col) => colorize(pad(text, col), col, row)).join("  ")}`.trimEnd(),
+    ),
     "",
-    `  ${chalk.dim(`${rows.length} ${rows.length === 1 ? "route" : "routes"}`)}`,
+    `  ${chalk.dim(`${String(rows.length)} ${rows.length === 1 ? "route" : "routes"}`)}`,
     "",
   ];
   console.log(lines.join("\n"));
@@ -601,9 +607,7 @@ export function listRoutes(cwd: string): void {
     }
     registered.add(path.resolve(file));
     const classes = parseClasses(fs.readFileSync(file, "utf8"));
-    const parsed = imported.isDefault
-      ? classes.find((c) => c.isDefault)
-      : classes.find((c) => c.name === identifier);
+    const parsed = imported.isDefault ? classes.find((c) => c.isDefault) : classes.find((c) => c.name === identifier);
     if (!parsed) {
       throw new CliError(`Could not find class ${identifier} in ${path.relative(cwd, file)}.`);
     }

@@ -3,12 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
 import { z } from "zod";
 import { createContext, type AuthData, type HttpContext } from "./context.js";
-import {
-  ForbiddenError,
-  MethodNotAllowedError,
-  RouteNotFoundError,
-  UnauthorizedError,
-} from "./errors.js";
+import { ForbiddenError, MethodNotAllowedError, RouteNotFoundError, UnauthorizedError } from "./errors.js";
 import {
   METHODS,
   controllerName,
@@ -21,14 +16,9 @@ import {
 import { isMiddleware, middlewareInstance, type MiddlewareEntry, type ParamSource } from "./metadata.js";
 import { resolveArgs } from "./params.js";
 
-export type ErrorHook = (
-  err: unknown,
-  request: Request,
-) => Response | void | Promise<Response | void>;
+export type ErrorHook = (err: unknown, request: Request) => Response | undefined | Promise<Response | undefined>;
 
-export type Authenticate = (
-  request: Request,
-) => AuthData | null | undefined | Promise<AuthData | null | undefined>;
+export type Authenticate = (request: Request) => AuthData | null | undefined | Promise<AuthData | null | undefined>;
 
 export interface HandlerOptions {
   controllers: ControllerClass[];
@@ -64,21 +54,16 @@ function joinPaths(...parts: string[]): string {
 
 function checkBase(name: string, value: string): string {
   if (value !== "" && !value.startsWith("/")) {
-    throw new Error(
-      `[nextroller] \`${name}\` must start with "/": ${JSON.stringify(value)}`,
-    );
+    throw new Error(`[nextroller] \`${name}\` must start with "/": ${JSON.stringify(value)}`);
   }
   return value;
 }
 
 function paramNames(path: string): string[] {
-  return [...path.matchAll(/\/:([^/{?]+)/g)].map((match) => match[1]!);
+  return [...path.matchAll(/\/:([^/{?]+)/g)].map((match) => match[1] ?? "");
 }
 
-function collectRoutes(
-  controllers: ControllerClass[],
-  base: string,
-): RouteEntry[] {
+function collectRoutes(controllers: ControllerClass[], base: string): RouteEntry[] {
   const routes: RouteEntry[] = [];
   for (const controller of controllers) {
     const { prefix, actions } = describeController(controller);
@@ -111,7 +96,7 @@ function compareSpecificity(a: RouteEntry, b: RouteEntry): number {
   const sa = a.path.split("/");
   const sb = b.path.split("/");
   for (let i = 0; i < Math.min(sa.length, sb.length); i++) {
-    const diff = segmentRank(sa[i]!) - segmentRank(sb[i]!);
+    const diff = segmentRank(sa[i] ?? "") - segmentRank(sb[i] ?? "");
     if (diff !== 0) return diff;
   }
   return 0;
@@ -137,11 +122,7 @@ function checkConflicts(routes: RouteEntry[]): void {
   }
 }
 
-function compose(
-  middlewares: MiddlewareEntry[],
-  ctx: HttpContext,
-  run: () => Promise<Response>,
-): Promise<Response> {
+function compose(middlewares: MiddlewareEntry[], ctx: HttpContext, run: () => Promise<Response>): Promise<Response> {
   let called = -1;
   const dispatch = async (index: number): Promise<Response> => {
     if (index <= called) {
@@ -165,24 +146,16 @@ function toResponse(result: unknown): Response {
   return Response.json(result);
 }
 
-function errorResponse(
-  status: number,
-  body: Record<string, unknown>,
-): Response {
+function errorResponse(status: number, body: Record<string, unknown>): Response {
   return Response.json(body, { status });
 }
 
 export function createHandler(options: HandlerOptions): Handlers {
   const { controllers, authenticate, onError, middlewares: globals = [] } = options;
   if (!Array.isArray(globals) || !globals.every(isMiddleware)) {
-    throw new Error(
-      "[nextroller] `middlewares` must be an array of classes or objects with a run() method",
-    );
+    throw new Error("[nextroller] `middlewares` must be an array of classes or objects with a run() method");
   }
-  const base = joinPaths(
-    checkBase("basePath", options.basePath ?? "/api"),
-    checkBase("prefix", options.prefix ?? ""),
-  );
+  const base = joinPaths(checkBase("basePath", options.basePath ?? "/api"), checkBase("prefix", options.prefix ?? ""));
 
   const routes = collectRoutes(controllers, base).sort(compareSpecificity);
   checkConflicts(routes);
@@ -190,18 +163,14 @@ export function createHandler(options: HandlerOptions): Handlers {
   const unauthenticated = authenticate ? undefined : routes.find((route) => route.auth);
   if (unauthenticated) {
     throw new Error(
-      `[nextroller] ${controllerName(unauthenticated.controller)}: ` +
-        "@Auth requires `authenticate` in createHandler",
+      `[nextroller] ${controllerName(unauthenticated.controller)}: ` + "@Auth requires `authenticate` in createHandler",
     );
   }
 
   const app = new Hono();
   const matcher = new TrieRouter<true>();
 
-  const handleError = async (
-    err: unknown,
-    request: Request,
-  ): Promise<Response> => {
+  const handleError = async (err: unknown, request: Request): Promise<Response> => {
     if (onError) {
       try {
         const res = await onError(err, request);
@@ -237,21 +206,20 @@ export function createHandler(options: HandlerOptions): Handlers {
       const run = async (): Promise<Response> => {
         try {
           if (auth) {
-            const resolved: AuthData | null | undefined = await authenticate!(c.req.raw);
+            const resolved: AuthData | null | undefined = await authenticate?.(c.req.raw);
             if (resolved == null) {
               throw new UnauthorizedError();
             }
-            if (guard && (await guard(resolved, info)) !== true) {
+            const allowed: unknown = guard ? await guard(resolved, info) : true;
+            if (allowed !== true) {
               throw new ForbiddenError();
             }
             ctx.auth = resolved;
           }
-          const instance = new controller() as Record<
-            string,
-            (...args: unknown[]) => unknown
-          >;
+          const instance = new controller() as Record<string, unknown>;
+          const method = instance[action] as (...args: unknown[]) => unknown;
           const args = await resolveArgs(params, ctx);
-          return toResponse(await instance[action]!(...args));
+          return toResponse(await method.apply(instance, args));
         } catch (err) {
           return handleError(err, c.req.raw);
         }
@@ -265,17 +233,12 @@ export function createHandler(options: HandlerOptions): Handlers {
   }
 
   app.notFound(async (c) => {
-    const allow = METHODS.filter(
-      (m) => matcher.match(m, c.req.path)[0].length > 0,
-    );
+    const allow = METHODS.filter((m) => matcher.match(m, c.req.path)[0].length > 0);
     const run = async (): Promise<Response> => {
       if (c.req.method === "OPTIONS" && allow.length > 0) {
         return new Response(null, { status: 204, headers: { Allow: allow.join(", ") } });
       }
-      const err =
-        allow.length > 0
-          ? new MethodNotAllowedError(allow)
-          : new RouteNotFoundError();
+      const err = allow.length > 0 ? new MethodNotAllowedError(allow) : new RouteNotFoundError();
       const res = await handleError(err, c.req.raw);
       if (allow.length > 0 && !res.headers.has("Allow")) {
         res.headers.set("Allow", allow.join(", "));

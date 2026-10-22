@@ -37,13 +37,13 @@ export interface ControllerMeta {
   actions: Map<string, ActionMeta>;
 }
 
-const registry = new WeakMap<Function, ControllerMeta>();
+const registry = new WeakMap<object, ControllerMeta>();
 
-export function readMeta(controller: Function): ControllerMeta | undefined {
+export function readMeta(controller: object): ControllerMeta | undefined {
   return registry.get(controller);
 }
 
-export function controllerMeta(controller: Function): ControllerMeta {
+export function controllerMeta(controller: object): ControllerMeta {
   let meta = registry.get(controller);
   if (!meta) {
     meta = { resource: false, middlewares: [], actions: new Map() };
@@ -52,7 +52,7 @@ export function controllerMeta(controller: Function): ControllerMeta {
   return meta;
 }
 
-export function actionMeta(controller: Function, action: string): ActionMeta {
+export function actionMeta(controller: object, action: string): ActionMeta {
   const actions = controllerMeta(controller).actions;
   let meta = actions.get(action);
   if (!meta) {
@@ -62,11 +62,7 @@ export function actionMeta(controller: Function, action: string): ActionMeta {
   return meta;
 }
 
-export function decoratorError(
-  target: object,
-  key: string | symbol | undefined,
-  message: string,
-): Error {
+export function decoratorError(target: object, key: string | symbol | undefined, message: string): Error {
   const owner = typeof target === "function" ? target : target.constructor;
   const name = owner.name || "<anonymous>";
   const where = key === undefined ? name : `${name}.${String(key)}`;
@@ -77,7 +73,7 @@ export function memberTarget(
   target: object,
   key: string | symbol | undefined,
   decorator: string,
-): { controller: Function; action: string } {
+): { controller: object; action: string } {
   if (key === undefined) {
     throw decoratorError(target, key, `${decorator} cannot be used on the constructor`);
   }
@@ -100,7 +96,7 @@ export function addParam(
   const { controller, action } = memberTarget(target, key, decorator);
   const params = actionMeta(controller, action).params;
   if (params[index]) {
-    throw decoratorError(target, key, `parameter ${index} has more than one decorator`);
+    throw decoratorError(target, key, `parameter ${String(index)} has more than one decorator`);
   }
   params[index] = source;
 }

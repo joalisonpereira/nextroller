@@ -50,7 +50,7 @@ function empty(status: number, init?: ResponseOptions): Response {
 function queryValues(c: Context): Record<string, string | string[]> {
   const values: Record<string, string | string[]> = {};
   for (const [key, list] of Object.entries(c.req.queries())) {
-    values[key] = list.length === 1 ? list[0]! : list;
+    values[key] = list.length === 1 ? (list[0] ?? "") : list;
   }
   return values;
 }
@@ -64,7 +64,7 @@ export async function readBody(c: Context): Promise<unknown> {
   return data ?? {};
 }
 
-export function createContext<P extends string = string>(c: Context, auth?: AuthData) {
+export function createContext<P extends string = string>(c: Context) {
   const params = c.req.param() as PathParams<P>;
   const query = c.req.query();
   const headers = c.req.header();
@@ -72,22 +72,22 @@ export function createContext<P extends string = string>(c: Context, auth?: Auth
   return {
     request: c.req.raw,
     raw: c,
-    auth: auth as AuthData,
+    auth: undefined as unknown as AuthData,
     params,
     query,
     headers,
     validate: {
       async body<S extends z.ZodType>(schema: S): Promise<z.infer<S>> {
-        return schema.parse(await readBody(c)) as z.infer<S>;
+        return schema.parse(await readBody(c));
       },
       query<S extends z.ZodType>(schema: S): z.infer<S> {
-        return schema.parse(queryValues(c)) as z.infer<S>;
+        return schema.parse(queryValues(c));
       },
       params<S extends z.ZodType>(schema: S): z.infer<S> {
-        return schema.parse(params) as z.infer<S>;
+        return schema.parse(params);
       },
       headers<S extends z.ZodType>(schema: S): z.infer<S> {
-        return schema.parse(headers) as z.infer<S>;
+        return schema.parse(headers);
       },
     },
     response: {
@@ -111,7 +111,7 @@ export function createContext<P extends string = string>(c: Context, auth?: Auth
       },
       redirect(url: string, status: RedirectStatus = 302): Response {
         if (!REDIRECT_STATUSES.includes(status)) {
-          throw new Error(`[nextroller] invalid redirect status: ${status}`);
+          throw new Error(`[nextroller] invalid redirect status: ${String(status)}`);
         }
         return new Response(null, { status, headers: { Location: url } });
       },

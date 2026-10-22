@@ -9,7 +9,9 @@ function isSchema(value: unknown): value is z.ZodType {
 }
 
 function param(source: ParamSource, decorator: string): ParameterDecorator {
-  return (target, key, index) => addParam(target, key, index, source, decorator);
+  return (target, key, index) => {
+    addParam(target, key, index, source, decorator);
+  };
 }
 
 function keyed(kind: "query" | "param" | "headers", decorator: string) {
@@ -69,10 +71,7 @@ function resolve(source: ParamSource, ctx: HttpContext): unknown {
   }
 }
 
-export async function resolveArgs(
-  params: readonly (ParamSource | undefined)[],
-  ctx: HttpContext,
-): Promise<unknown[]> {
+export async function resolveArgs(params: readonly (ParamSource | undefined)[], ctx: HttpContext): Promise<unknown[]> {
   if (params.length === 0) return [ctx];
   const args: unknown[] = [];
   for (const source of params) {
