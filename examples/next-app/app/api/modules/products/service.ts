@@ -2,7 +2,7 @@ import type { Validated } from "./validator";
 
 export class ProductsService {
   async list(page: number): Promise<unknown[]> {
-    throw new Error("Not implemented");
+    return [];
   }
 
   async find(id: string): Promise<unknown> {

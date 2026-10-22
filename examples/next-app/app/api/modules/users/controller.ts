@@ -10,16 +10,13 @@ import {
   Public,
   Put,
   Query,
-  Use,
   type HttpContext,
 } from "nextroller";
-import { logRequest } from "@/app/api/middlewares/log";
 import { UsersService, type User } from "./service";
 import { validator, type Validated } from "./validator";
 
-@Controller("/users", { resource: true })
 @Auth()
-@Use(logRequest)
+@Controller("/users", { resource: true })
 export default class UsersController {
   constructor(private users = new UsersService()) {}
 

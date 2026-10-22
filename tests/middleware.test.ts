@@ -195,10 +195,114 @@ describe("@Use", () => {
     ]);
   });
 
-  it("não roda em 404/405", async () => {
+  it("@Use não roda em 404/405", async () => {
     const { api, events } = build();
     expect((await api.GET(new Request("http://localhost/api/nada"))).status).toBe(404);
     expect((await api.PUT(new Request("http://localhost/api/m", { method: "PUT" }))).status).toBe(405);
     expect(events).toEqual([]);
+  });
+});
+
+describe("middlewares globais (createHandler)", () => {
+  function build() {
+    const events: string[] = [];
+
+    @Controller("/g", { resource: true })
+    @Use(trace("controller", events))
+    @Auth()
+    class Global {
+      @Public()
+      @Use(trace("method", events))
+      index() {
+        events.push("action");
+      }
+
+      store() {}
+    }
+
+    const api = createHandler({
+      controllers: [Global],
+      authenticate: () => null,
+      middlewares: [trace("g1", events), trace("g2", events)],
+    });
+    return { api, events };
+  }
+
+  it("rodam antes dos middlewares do controller e do método", async () => {
+    const { api, events } = build();
+    expect((await api.GET(new Request("http://localhost/api/g"))).status).toBe(204);
+    expect(events).toEqual([
+      "g1:before",
+      "g2:before",
+      "controller:before",
+      "method:before",
+      "action",
+      "method:after:204",
+      "controller:after:204",
+      "g2:after:204",
+      "g1:after:204",
+    ]);
+  });
+
+  it("enxergam 401 e rodam em 404/405 com Allow", async () => {
+    const { api, events } = build();
+    expect((await api.POST(new Request("http://localhost/api/g", { method: "POST" }))).status).toBe(401);
+    expect(events).toEqual([
+      "g1:before",
+      "g2:before",
+      "controller:before",
+      "controller:after:401",
+      "g2:after:401",
+      "g1:after:401",
+    ]);
+
+    events.length = 0;
+    expect((await api.GET(new Request("http://localhost/api/nada"))).status).toBe(404);
+    const res = await api.DELETE(new Request("http://localhost/api/g", { method: "DELETE" }));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, POST");
+    expect(events).toEqual([
+      "g1:before",
+      "g2:before",
+      "g2:after:404",
+      "g1:after:404",
+      "g1:before",
+      "g2:before",
+      "g2:after:405",
+      "g1:after:405",
+    ]);
+  });
+
+  it("erro em middleware global no 404 passa pelo onError", async () => {
+    @Controller("/ok")
+    class Ok {
+      @Get()
+      go() {}
+    }
+    const onError = vi.fn();
+    const api = createHandler({
+      controllers: [Ok],
+      onError,
+      middlewares: [
+        () => {
+          throw new HTTPException(503, { message: "Maintenance" });
+        },
+      ],
+    });
+    const res = await api.GET(new Request("http://localhost/api/nada"));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Maintenance" });
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejeita middlewares inválido na inicialização", () => {
+    @Controller("/ok")
+    class Ok {
+      @Get()
+      go() {}
+    }
+    expect(() =>
+      createHandler({ controllers: [Ok], middlewares: ["log" as unknown as Middleware] }),
+    ).toThrow("[nextroller] `middlewares` must be an array of functions");
   });
 });

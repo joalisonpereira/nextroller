@@ -14,7 +14,7 @@ Construída sobre Hono (motor de roteamento interno) e Zod (validação). Usa de
 - `HttpContext` simples (auth, params, query, headers, validate, response helpers), recebido pelo método quando ele não usa parameter decorators
 - validação com Zod dentro do controller (`validate.*` ou `@Body(schema)`/`@Query(schema)`/...)
 - autenticação declarada no controller (`@Auth` + `@Public`), com verificação delegada ao `authenticate` do app e regra opcional por controller (`@Auth(guard)`)
-- middlewares por controller/ação (`@Use`)
+- middlewares globais (`createHandler({ middlewares })`) e por controller/ação (`@Use`)
 - classes de exceção HTTP (`BadRequestError`, `NotFoundError`, `ConflictError`, ...)
 - tratamento central de erros
 
@@ -28,7 +28,7 @@ Não adicionar sem pedido explícito:
 - `reflect-metadata` / `emitDecoratorMetadata`
 - decorators TC39 (padrão novo): a lib usa legacy por causa dos parameter decorators
 - container de DI: DI é parâmetro default no construtor
-- middlewares nomeados / kernel / middleware global
+- middlewares nomeados / kernel
 - exception filter: o `onError` cobre
 - views, ORM, acesso a banco
 - documentação OpenAPI
@@ -171,7 +171,7 @@ Regras:
 - `@Body(schema)` **não** amarra o tipo do parâmetro (limitação do decorator legacy): anotar com `Validated["create"]`. Divergência entre schema e anotação não é pega pelo TS.
 - Resolução na ordem dos parâmetros. Só `@Body` é assíncrono. `ZodError` vira 422.
 
-### Middleware (`@Use`)
+### Middleware (`middlewares` e `@Use`)
 
 ```ts
 export type Middleware = (
@@ -180,14 +180,16 @@ export type Middleware = (
 ) => Response | Promise<Response>;
 ```
 
-- Ordem: middlewares do controller → middlewares do método → auth (`authenticate` + guard) → instancia controller → ação. Dentro de cada nível, ordem de declaração (de cima para baixo; `@Use(a, b)` roda `a` antes de `b`).
+- Três níveis: globais (`createHandler({ middlewares: [...] })`), do controller (`@Use` na classe) e do método (`@Use` no método).
+- Ordem: globais → controller → método → auth (`authenticate` + guard) → instancia controller → ação. Dentro de cada nível, ordem de declaração (array na ordem; decorators de cima para baixo; `@Use(a, b)` roda `a` antes de `b`).
 - Roda **antes** da auth (log/CORS veem 401/403). `ctx.auth` é `undefined` antes de `next()` e preenchido depois (o `ctx` é o mesmo objeto passado à ação).
 - `next()` devolve a `Response` final já mapeada: erro da ação/auth passa pelo `onError`/mapeamento antes de voltar ao middleware.
 - Pode encerrar sem chamar `next()` devolvendo uma `Response`, ou alterar a resposta devolvida por `next()`.
 - Erro lançado pelo middleware → `onError`/mapeamento padrão. Chamar `next()` duas vezes ou devolver algo que não é `Response` → erro (500).
-- Não roda em 404/405 (sem rota casada).
-- `@Use` em método que não é rota → erro no `createHandler`.
+- Em 404/405 (sem rota casada) só os globais rodam, envolvendo a resposta de erro (já com `Allow` no 405). `ctx.params` vem vazio. `@Use` não roda.
+- `middlewares` que não é array de funções → erro no `createHandler`. `@Use` em método que não é rota → erro no `createHandler`.
 - Só função. Middleware compartilhado no app fica em `app/api/middlewares/`.
+- Global para o que vale em toda a API (log, request id, CORS); `@Use` para o que é do controller/ação.
 
 ### Onde cada erro é pego
 
@@ -204,6 +206,7 @@ export type Middleware = (
 | parâmetro sem decorator, `@Param("k")` fora do path, `@Auth()` em ação não protegida | runtime, no `createHandler` |
 | rota duplicada (entre controllers ou métodos)            | runtime, no `createHandler`            |
 | `@Auth` sem `authenticate` no `createHandler`            | runtime, no `createHandler`            |
+| `middlewares` que não é array de funções                 | compile time e runtime, no `createHandler` |
 
 ### `createHandler`
 
@@ -213,6 +216,7 @@ createHandler({
   basePath?: string,              // default "/api" (onde o catch-all está montado)
   prefix?: string,                // prefixo global, ex.: "/v1"
   authenticate?: Authenticate,    // resolve o usuário das rotas com @Auth (ver "Autenticação")
+  middlewares?: Middleware[],     // globais: rodam em todas as requests, inclusive 404/405
   onError?: ErrorHook,            // hook de erro customizável (ver abaixo)
 }) => { GET, POST, PUT, PATCH, DELETE }
 
@@ -232,7 +236,7 @@ Responsabilidades:
 - montar rotas de todos os controllers (`basePath + prefix + @Controller prefix + path`)
 - **ordenar por especificidade** antes de registrar: segmentos fixos antes de parâmetros (`/users/me` antes de `/users/:id`). Hono usa a primeira rota que casar na ordem de registro.
 - lançar erro na inicialização para rota duplicada (mesmo verbo + path), indicando os dois controllers/métodos
-- rodar middlewares; em rota com `@Auth`, chamar `authenticate` (e o guard, se houver) antes de instanciar o controller
+- rodar middlewares (globais → controller → método); em rota com `@Auth`, chamar `authenticate` (e o guard, se houver) antes de instanciar o controller
 - instanciar o controller por request, resolver argumentos e aplicar as regras de resposta
 - responder 404 e 405 em JSON quando nenhuma rota casa (tabela "Respostas automáticas"), passando pelo `onError`
 - `onError` central (tabela "Mapeamento de erros"), com hook do usuário antes do mapeamento padrão
@@ -429,7 +433,7 @@ Sem rota casando, o handler gera um erro e o trata como qualquer outro (fluxo de
 - Para decidir entre 404 e 405, o handler testa o path contra as rotas dos outros verbos. A lista é montada na inicialização, junto com a ordenação.
 - Passam pelo `onError`: o hook pode customizar mensagem/formato (`if (err instanceof RouteNotFoundError) return ...`).
 - No 405, se a `Response` final (padrão ou do hook) não tiver `Allow`, a lib adiciona.
-- Não geram `console.error` (são `HTTPException`). Não passam por middlewares.
+- Não geram `console.error` (são `HTTPException`). Passam só pelos middlewares globais.
 
 ### Mapeamento de erros (`onError` em `createHandler()`)
 
@@ -502,6 +506,7 @@ Regras:
 
 ```ts
 import { createHandler } from "nextroller";
+import { logRequest } from "@/app/api/middlewares/log";
 import UsersController from "@/app/api/modules/users/controller";
 import { UsersService } from "@/app/api/modules/users/service";
 
@@ -509,6 +514,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
   basePath: "/api",
   prefix: "/v1",
   controllers: [UsersController],
+  middlewares: [logRequest],
   authenticate: async (request) =>
     new UsersService().findByToken(request.headers.get("authorization")),
 });
@@ -530,16 +536,13 @@ import {
   Public,
   Put,
   Query,
-  Use,
   type HttpContext,
 } from "nextroller";
-import { logRequest } from "@/app/api/middlewares/log";
 import { UsersService, type User } from "./service";
 import { validator, type Validated } from "./validator";
 
 @Controller("/users", { resource: true })
 @Auth()
-@Use(logRequest)
 export default class UsersController {
   constructor(private users = new UsersService()) {}
 
@@ -593,7 +596,7 @@ async show({ params, response }: HttpContext<"/:id">) {
 }
 ```
 
-`app/api/middlewares/log.ts`:
+`app/api/middlewares/log.ts` (registrado como global no `route.ts`; para um controller só, `@Use(logRequest)` na classe):
 
 ```ts
 import type { Middleware } from "nextroller";
@@ -687,7 +690,6 @@ Critérios:
 - **Checar `HttpContext<P>` contra o path do decorator de verbo:** o decorator de método poderia exigir que o 1º parâmetro aceite `HttpContext<P>`. Problema: params vindos do `prefix` do `@Controller` não são visíveis no decorator de método (falso positivo).
 - **`ctx.auth` opcional em ação pública:** hoje `auth` é tipado como não opcional em todas as ações.
 - **Herança de controllers:** metadata hoje é só da própria classe.
-- **Middleware global** em `createHandler({ middlewares })`.
 - **`@Auth` em método** (proteger uma ação isolada de controller público).
 - **Listagem de rotas:** comando `nextroller routes` (no mesmo bin do `make:module`) lendo a metadata e imprimindo verbo, path, controller, auth/guard e middlewares.
 

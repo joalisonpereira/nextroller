@@ -35,6 +35,7 @@ export interface HandlerOptions {
   basePath?: string;
   prefix?: string;
   authenticate?: Authenticate;
+  middlewares?: Middleware[];
   onError?: ErrorHook;
 }
 
@@ -172,7 +173,10 @@ function errorResponse(
 }
 
 export function createHandler(options: HandlerOptions): Handlers {
-  const { controllers, authenticate, onError } = options;
+  const { controllers, authenticate, onError, middlewares: globals = [] } = options;
+  if (!Array.isArray(globals) || !globals.every((middleware) => typeof middleware === "function")) {
+    throw new Error("[nextroller] `middlewares` must be an array of functions");
+  }
   const base = joinPaths(
     checkBase("basePath", options.basePath ?? "/api"),
     checkBase("prefix", options.prefix ?? ""),
@@ -251,7 +255,7 @@ export function createHandler(options: HandlerOptions): Handlers {
         }
       };
       try {
-        return await compose(middlewares, ctx, run);
+        return await compose([...globals, ...middlewares], ctx, run);
       } catch (err) {
         return handleError(err, c.req.raw);
       }
@@ -262,15 +266,22 @@ export function createHandler(options: HandlerOptions): Handlers {
     const allow = METHODS.filter(
       (m) => matcher.match(m, c.req.path)[0].length > 0,
     );
-    const err =
-      allow.length > 0
-        ? new MethodNotAllowedError(allow)
-        : new RouteNotFoundError();
-    const res = await handleError(err, c.req.raw);
-    if (allow.length > 0 && !res.headers.has("Allow")) {
-      res.headers.set("Allow", allow.join(", "));
+    const run = async (): Promise<Response> => {
+      const err =
+        allow.length > 0
+          ? new MethodNotAllowedError(allow)
+          : new RouteNotFoundError();
+      const res = await handleError(err, c.req.raw);
+      if (allow.length > 0 && !res.headers.has("Allow")) {
+        res.headers.set("Allow", allow.join(", "));
+      }
+      return res;
+    };
+    try {
+      return await compose(globals, createContext(c), run);
+    } catch (err) {
+      return handleError(err, c.req.raw);
     }
-    return res;
   });
 
   const handle: RouteHandler = async (request) => app.fetch(request);

@@ -3,17 +3,14 @@ import { ProductsService } from "./service";
 import { validator } from "./validator";
 
 @Controller("/products", { resource: true })
-@Auth((auth) => auth.active)
 export default class ProductsController {
   constructor(private products = new ProductsService()) {}
 
-  @Public()
   async index({ validate }: HttpContext) {
     const { page } = validate.query(validator.list);
     return this.products.list(page);
   }
 
-  @Public()
   async show({ params, response }: HttpContext<"/:id">) {
     const item = await this.products.find(params.id);
     return item ?? response.notFound();
