@@ -18,7 +18,9 @@ class Full {
   me(_ctx: HttpContext) {
     return { secret: this.secret };
   }
-  archive() {}
+  archive({ params }: HttpContext<"/:id/archive">) {
+    return params.id;
+  }
 }
 export const full: typeof Full = defineController(Full);
 

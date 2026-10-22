@@ -23,7 +23,7 @@ class ${pascal}Controller {
     return this.${camel}.list(page);
   }
 
-  async show({ params, response }: HttpContext) {
+  async show({ params, response }: HttpContext<"/:id">) {
     const item = await this.${camel}.find(params.id);
     return item ?? response.notFound();
   }
@@ -33,11 +33,11 @@ class ${pascal}Controller {
     return response.created(await this.${camel}.create(data));
   }
 
-  async update({ params, validate }: HttpContext) {
+  async update({ params, validate }: HttpContext<"/:id">) {
     return this.${camel}.update(params.id, await validate.body(updateSchema));
   }
 
-  async destroy({ params }: HttpContext) {
+  async destroy({ params }: HttpContext<"/:id">) {
     await this.${camel}.remove(params.id);
   }
 }

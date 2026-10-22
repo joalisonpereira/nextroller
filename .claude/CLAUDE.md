@@ -110,7 +110,7 @@ Regras de `route`:
 
 - **`static route = { ... } as const` é obrigatório.** Sem `as const`, o TS alarga `["GET", "/me"]` para `string[]` e `"/users"` para `string`, e o `defineController` rejeita (erro de compilação). Esquecer o `as const` nunca passa silenciosamente.
 - Ações são tuplas `[verbo, path]`; vários verbos: `[["PUT", "PATCH"], path]`.
-- `as const` preserva paths literais em `actions` (base para inferir `params` no futuro).
+- `as const` preserva paths literais em `actions` (base para checar `HttpContext<P>` contra o `route` no futuro).
 - `actions` sobrescreve `resource` quando o mesmo método aparece nos dois.
 - Métodos `private` não podem ser rota (ficam fora de `keyof`). Helpers internos do controller devem ser `private`.
 - Paths de `actions` são relativos ao `prefix`.
@@ -168,7 +168,7 @@ Responsabilidades:
 createContext(c: Context) => {
   request,                   // Request original (em runtime é o NextRequest passado pelo Next; tipado como Request)
   raw,                       // Context do Hono (escape hatch)
-  params,                    // Record<string, string>
+  params,                    // Record<string, string>; com HttpContext<P>, objeto tipado pelo path
   query,                     // Record<string, string>
   headers,                   // Record<string, string>
   validate: {
@@ -188,8 +188,16 @@ createContext(c: Context) => {
     status(code, data?, init?), // qualquer status; data vira JSON
   },
 }
-export type HttpContext = ReturnType<typeof createContext>;
+export type HttpContext<P extends string = string> = ReturnType<typeof createContext<P>>;
 ```
+
+`params` tipado pelo path:
+
+- Genérico opcional: `HttpContext<"/:id/activate">` tipa `params` como `{ id: string }`. Sem genérico, `params` é `Record<string, string>`.
+- Só os nomes importam: o path do genérico não é comparado com o `route` (pode ser o path relativo da action ou o completo, com params do `prefix`).
+- Sintaxe do Hono: `/:id?` vira `{ id?: string }`; regex `/:id{[0-9]+}` vira `{ id: string }`.
+- Path sem parâmetro (`HttpContext<"/me">`) tipa `params` como `{}`: acessar `params.id` é erro de compilação.
+- Templates do `make:module` usam `HttpContext<"/:id">` em `show`, `update` e `destroy`.
 
 `validate.*`:
 
@@ -327,7 +335,7 @@ class UsersController {
     return this.users.list(page);
   }
 
-  async show({ params, response }: HttpContext) {
+  async show({ params, response }: HttpContext<"/:id">) {
     const user = await this.users.find(params.id);
     return user ?? response.notFound("User not found");
   }
@@ -337,11 +345,11 @@ class UsersController {
     return response.created(await this.users.create(data));
   }
 
-  async update({ params, validate }: HttpContext) {
+  async update({ params, validate }: HttpContext<"/:id">) {
     return this.users.update(params.id, await validate.body(updateUser));
   }
 
-  async destroy({ params }: HttpContext) {
+  async destroy({ params }: HttpContext<"/:id">) {
     await this.users.remove(params.id);
   }
 
@@ -349,11 +357,11 @@ class UsersController {
     return this.users.findByToken(headers.authorization);
   }
 
-  async activate({ params }: HttpContext) {
+  async activate({ params }: HttpContext<"/:id/activate">) {
     await this.users.activate(params.id);
   }
 
-  async archive({ params }: HttpContext) {
+  async archive({ params }: HttpContext<"/:id/archive">) {
     await this.users.archive(params.id);
   }
 }
@@ -419,7 +427,7 @@ Critérios:
   - `prefix` `"/order-items"` (kebab-case do nome);
   - schemas `createSchema`, `updateSchema` e `listSchema`, que o usuário renomeia à vontade.
 - **Conteúdo dos templates:**
-  - controller com `static route = { prefix, resource: true } as const`, os 5 métodos CRUD delegando ao service e `export default defineController(...)`;
+  - controller com `static route = { prefix, resource: true } as const`, os 5 métodos CRUD delegando ao service (`HttpContext<"/:id">` nos que leem `params.id`) e `export default defineController(...)`;
   - service com os métodos correspondentes lançando `new Error("Not implemented")`;
   - validator com `createSchema`, `updateSchema = createSchema.partial()` e `listSchema` paginado.
 - O código gerado compila sem ajustes e segue as convenções (aspas duplas, ponto e vírgula, imports relativos dentro do módulo).
@@ -430,7 +438,7 @@ Critérios:
 ## Em aberto
 
 - **Descoberta automática de controllers:** script de codegen (e/ou plugin `withNextroller` no `next.config`) que varre `app/api/modules/*/*_controller.ts` e gera a lista passada a `controllers`. Seria açúcar opcional sobre a lista explícita. `require.context` e leitura do disco em runtime descartados (Turbopack / bundle serverless).
-- **`params` tipado pelo path:** genérico opcional `HttpContext<"/:id/activate">` para tipar `params.id`. Como `as const` preserva o path literal em `actions`, há base para inferir isso a partir do `route` no futuro.
+- **Checar `HttpContext<P>` contra o `route`:** hoje o genérico é declarado à mão e não é comparado com o path da action. Como `as const` preserva o path literal em `actions`, o `defineController` poderia rejeitar um método cujo `HttpContext<P>` declare params ausentes no path real (`prefix` + path da action).
 - **Listagem de rotas:** comando `nextroller routes` (no mesmo bin do `make:module`) imprimindo verbo, path e controller (compensa a falta de visão central).
 
 ## Convenções de código

@@ -9,6 +9,28 @@ type RedirectStatus = 301 | 302 | 303 | 307 | 308;
 
 const REDIRECT_STATUSES: readonly number[] = [301, 302, 303, 307, 308];
 
+type ParamSegments<P extends string> = P extends `${string}:${infer Rest}`
+  ? Rest extends `${infer Segment}/${infer Tail}`
+    ? Segment | ParamSegments<`/${Tail}`>
+    : Rest
+  : never;
+
+type ParamName<S extends string> = S extends `${infer Name}{${string}` ? Name : S;
+
+type RequiredParams<P extends string> = {
+  [S in ParamSegments<P> as S extends `${string}?` ? never : ParamName<S>]: string;
+};
+
+type OptionalParams<P extends string> = {
+  [S in ParamSegments<P> as S extends `${infer Name}?` ? ParamName<Name> : never]?: string;
+};
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+export type PathParams<P extends string> = string extends P
+  ? Record<string, string>
+  : Simplify<RequiredParams<P> & OptionalParams<P>>;
+
 function json(data: unknown, status: number, init?: ResponseOptions): Response {
   return Response.json(data, { status, headers: init?.headers });
 }
@@ -25,8 +47,8 @@ function queryValues(c: Context): Record<string, string | string[]> {
   return values;
 }
 
-export function createContext(c: Context) {
-  const params = c.req.param() as Record<string, string>;
+export function createContext<P extends string = string>(c: Context) {
+  const params = c.req.param() as PathParams<P>;
   const query = c.req.query();
   const headers = c.req.header();
 
@@ -83,4 +105,4 @@ export function createContext(c: Context) {
   };
 }
 
-export type HttpContext = ReturnType<typeof createContext>;
+export type HttpContext<P extends string = string> = ReturnType<typeof createContext<P>>;

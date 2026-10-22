@@ -20,7 +20,7 @@ class UsersController {
     return this.users.list(page);
   }
 
-  async show({ params, response }: HttpContext) {
+  async show({ params, response }: HttpContext<"/:id">) {
     const user = await this.users.find(params.id);
     return user ?? response.notFound("User not found");
   }
@@ -30,11 +30,11 @@ class UsersController {
     return response.created(await this.users.create(data));
   }
 
-  async update({ params, validate }: HttpContext) {
+  async update({ params, validate }: HttpContext<"/:id">) {
     return this.users.update(params.id, await validate.body(updateUser));
   }
 
-  async destroy({ params }: HttpContext) {
+  async destroy({ params }: HttpContext<"/:id">) {
     await this.users.remove(params.id);
   }
 
@@ -42,11 +42,11 @@ class UsersController {
     return this.users.findByToken(headers.authorization);
   }
 
-  async activate({ params }: HttpContext) {
+  async activate({ params }: HttpContext<"/:id/activate">) {
     await this.users.activate(params.id);
   }
 
-  async archive({ params }: HttpContext) {
+  async archive({ params }: HttpContext<"/:id/archive">) {
     await this.users.archive(params.id);
   }
 }

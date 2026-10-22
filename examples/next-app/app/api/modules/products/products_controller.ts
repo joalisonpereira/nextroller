@@ -15,7 +15,7 @@ class ProductsController {
     return this.products.list(page);
   }
 
-  async show({ params, response }: HttpContext) {
+  async show({ params, response }: HttpContext<"/:id">) {
     const item = await this.products.find(params.id);
     return item ?? response.notFound();
   }
@@ -25,11 +25,11 @@ class ProductsController {
     return response.created(await this.products.create(data));
   }
 
-  async update({ params, validate }: HttpContext) {
+  async update({ params, validate }: HttpContext<"/:id">) {
     return this.products.update(params.id, await validate.body(updateSchema));
   }
 
-  async destroy({ params }: HttpContext) {
+  async destroy({ params }: HttpContext<"/:id">) {
     await this.products.remove(params.id);
   }
 }
