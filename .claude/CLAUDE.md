@@ -283,6 +283,7 @@ Fluxo em rota protegida:
     }
   }
   ```
+- `Register` é a única forma de tipar `ctx.auth`. Genérico no `HttpContext` (`HttpContext<P, User>`) foi descartado: cada controller afirmaria o tipo por conta própria, sem conferência com o retorno do `authenticate`. Com `Register`, o `createHandler` checa os dois lados.
 - `ctx.auth` é tipado como não opcional mesmo em ação pública. Ler `auth` em ação pública é erro de lógica do controller.
 - `ctx.auth` (dados resolvidos) e `route.auth` (flag do controller) têm o mesmo nome de propósito: um declara, o outro entrega.
 - Autorização (roles, dono do recurso) fica no service, lançando `HTTPException(403)`.
