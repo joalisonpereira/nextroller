@@ -84,3 +84,14 @@ export const validator = {
 export type Validated = InferValidator<typeof validator>;
 `;
 }
+
+export function middlewareTemplate({ pascal }: ModuleNames): string {
+  return `import type { HttpContext, Middleware } from "nextroller";
+
+export class ${pascal}Middleware implements Middleware {
+  async run(ctx: HttpContext, next: () => Promise<Response>) {
+    return next();
+  }
+}
+`;
+}

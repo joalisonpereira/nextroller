@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HTTPException,
+  Post,
   Public,
   Use,
   createHandler,
@@ -355,6 +356,42 @@ describe("middlewares globais (createHandler)", () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "Maintenance" });
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("tratam preflight OPTIONS (CORS)", async () => {
+    class Cors implements Middleware {
+      async run({ request }: HttpContext, next: () => Promise<Response>) {
+        const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST" };
+        if (request.method === "OPTIONS") {
+          return new Response(null, { status: 204, headers });
+        }
+        const res = await next();
+        for (const [key, value] of Object.entries(headers)) res.headers.set(key, value);
+        return res;
+      }
+    }
+
+    @Controller("/cors")
+    class Target {
+      @Post()
+      create() {
+        return { ok: true };
+      }
+    }
+
+    const api = createHandler({ controllers: [Target], middlewares: [Cors] });
+    const preflight = await api.OPTIONS(
+      new Request("http://localhost/api/cors", {
+        method: "OPTIONS",
+        headers: { origin: "http://app.test", "access-control-request-method": "POST" },
+      }),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+
+    const res = await api.POST(new Request("http://localhost/api/cors", { method: "POST" }));
+    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
   });
 
   it("rejeita middlewares inválido na inicialização", () => {

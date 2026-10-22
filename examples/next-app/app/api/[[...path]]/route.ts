@@ -4,7 +4,7 @@ import ProductsController from "@/app/api/modules/products/controller";
 import { UsersService } from "@/app/api/modules/users/service";
 import { LoggerMiddleware } from "@/app/api/middlewares/logger";
 
-export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   basePath: "/api",
   controllers: [UsersController, ProductsController],
   middlewares: [LoggerMiddleware],

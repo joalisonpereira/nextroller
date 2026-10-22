@@ -64,7 +64,7 @@ const Users = UsersController;
 
 async function call(
   handlers: ReturnType<typeof createHandler>,
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  method: keyof ReturnType<typeof createHandler>,
   path: string,
   body?: unknown,
 ) {
@@ -313,6 +313,31 @@ describe("respostas automáticas", () => {
     });
     const { res } = await call(handlers, "DELETE", "/api/users/7/archive");
     expect(res.headers.get("allow")).toBe("PUT");
+  });
+
+  it("HEAD responde como o GET sem corpo", async () => {
+    const res = await api.HEAD(request("HEAD", "/api/users/42"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.text()).toBe("");
+
+    const missing = await api.HEAD(request("HEAD", "/api/nada"));
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe("");
+
+    const onlyPost = await api.HEAD(request("HEAD", "/api/users/7/activate"));
+    expect(onlyPost.status).toBe(405);
+    expect(onlyPost.headers.get("allow")).toBe("POST");
+  });
+
+  it("OPTIONS responde 204 com Allow em path existente e 404 nos demais", async () => {
+    const res = await api.OPTIONS(request("OPTIONS", "/api/users/42"));
+    expect(res.status).toBe(204);
+    expect(res.headers.get("allow")).toBe("GET, PUT, PATCH, DELETE");
+    expect(await res.text()).toBe("");
+
+    const missing = await call(api, "OPTIONS", "/api/nada");
+    expect(missing).toMatchObject({ status: 404, body: { error: "Route not found" } });
   });
 
   it("404/405 não são logados", async () => {

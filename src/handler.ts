@@ -41,7 +41,7 @@ export interface HandlerOptions {
 
 type RouteHandler = (request: Request) => Promise<Response>;
 
-export type Handlers = Record<Method, RouteHandler>;
+export type Handlers = Record<Method | "HEAD" | "OPTIONS", RouteHandler>;
 
 interface RouteEntry {
   method: Method;
@@ -269,6 +269,9 @@ export function createHandler(options: HandlerOptions): Handlers {
       (m) => matcher.match(m, c.req.path)[0].length > 0,
     );
     const run = async (): Promise<Response> => {
+      if (c.req.method === "OPTIONS" && allow.length > 0) {
+        return new Response(null, { status: 204, headers: { Allow: allow.join(", ") } });
+      }
       const err =
         allow.length > 0
           ? new MethodNotAllowedError(allow)
@@ -293,5 +296,7 @@ export function createHandler(options: HandlerOptions): Handlers {
     PUT: handle,
     PATCH: handle,
     DELETE: handle,
+    HEAD: handle,
+    OPTIONS: handle,
   };
 }

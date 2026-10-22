@@ -9,7 +9,7 @@ Construída sobre Hono (motor de roteamento interno) e Zod (validação). Usa de
 ## O que a lib entrega
 
 - decorators de classe (`@Controller`, `@Auth`, `@Use`), de método (`@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Public`, `@Use`) e de parâmetro (`@Body`, `@Query`, `@Param`, `@Header`, `@Req`, `@Ctx`, `@Auth`)
-- `createHandler({ controllers, ... })`: registra controllers e devolve `{ GET, POST, PUT, PATCH, DELETE }` para exportar no `route.ts`
+- `createHandler({ controllers, ... })`: registra controllers e devolve `{ GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS }` para exportar no `route.ts`
 - controllers como classes com métodos (`index`, `show`, `store`, `update`, `destroy` via `resource` + métodos com decorator de verbo)
 - `HttpContext` simples (auth, params, query, headers, validate, response helpers), recebido pelo método quando ele não usa parameter decorators
 - validação com Zod dentro do controller (`validate.*` ou `@Body(schema)`/`@Query(schema)`/...)
@@ -17,6 +17,7 @@ Construída sobre Hono (motor de roteamento interno) e Zod (validação). Usa de
 - middlewares globais (`createHandler({ middlewares })`) e por controller/ação (`@Use`)
 - classes de exceção HTTP (`BadRequestError`, `NotFoundError`, `ConflictError`, ...)
 - tratamento central de erros
+- CLI: `make:module`, `make:middleware` e `routes`
 
 ## Fora de escopo
 
@@ -48,8 +49,10 @@ src/
   handler.ts        # createHandler: registro, ordenação, conflitos, middlewares, auth, onError
   errors.ts         # RouteNotFoundError, MethodNotAllowedError, BadRequestError, UnauthorizedError, ForbiddenError, NotFoundError, ConflictError
   cli/
-    index.ts        # bin `nextroller`: parse de argv e comandos
-    templates.ts    # templates do make:module
+    index.ts        # bin `nextroller`: parse de argv, make:module, make:middleware
+    routes.ts       # comando routes: análise estática do route.ts e dos controllers
+    shared.ts       # CliError, findAppDir
+    templates.ts    # templates do make:module e make:middleware
 tests/              # testes da lib (runtime em *.test.ts, tipos em tests/types/)
 examples/next-app/  # app Next de exemplo consumindo a lib
 ```
@@ -237,7 +240,7 @@ createHandler({
   authenticate?: Authenticate,    // resolve o usuário das rotas com @Auth (ver "Autenticação")
   middlewares?: MiddlewareEntry[], // globais (classe ou instância): rodam em todas as requests, inclusive 404/405
   onError?: ErrorHook,            // hook de erro customizável (ver abaixo)
-}) => { GET, POST, PUT, PATCH, DELETE }
+}) => { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS }
 
 type Authenticate = (
   request: Request,
@@ -380,7 +383,7 @@ export default class ProductsController {
   }
 }
 
-export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   controllers: [ProductsController],
   authenticate: async (request) => verifyToken(request.headers.get("authorization")),
 });
@@ -454,6 +457,12 @@ Sem rota casando, o handler gera um erro e o trata como qualquer outro (fluxo de
 - No 405, se a `Response` final (padrão ou do hook) não tiver `Allow`, a lib adiciona.
 - Não geram `console.error` (são `HTTPException`). Passam só pelos middlewares globais.
 
+`HEAD` e `OPTIONS` (exportar os dois no `route.ts`; não há decorator de verbo para eles):
+
+- `HEAD` roda a rota `GET` do path (controller, middlewares, auth) e devolve status e headers sem corpo. Path sem `GET` segue a tabela acima (404/405), também sem corpo.
+- `OPTIONS` em path registrado responde `204` com `Allow` (verbos registrados); em path inexistente, `404` (`RouteNotFoundError`).
+- Os dois passam pelos middlewares globais: preflight de CORS é tratado num middleware global que responde ao `OPTIONS` sem chamar `next()`. `@Use` não roda em `OPTIONS`.
+
 ### Mapeamento de erros (`onError` em `createHandler()`)
 
 Fluxo quando o controller (ou service, ou middleware) lança, quando `authenticate` lança ou não resolve usuário (401), ou quando nenhuma rota casa (404/405):
@@ -474,7 +483,7 @@ Fluxo quando o controller (ou service, ou middleware) lança, quando `authentica
 - Código do usuário sinaliza erros HTTP lançando as classes de exceção ou `HTTPException`.
 
 ```ts
-export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   controllers: [UsersController],
   onError(err, request) {
     if (err instanceof RouteNotFoundError) {
@@ -529,7 +538,7 @@ import { LoggerMiddleware } from "@/app/api/middlewares/logger";
 import UsersController from "@/app/api/modules/users/controller";
 import { UsersService } from "@/app/api/modules/users/service";
 
-export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
+export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   basePath: "/api",
   prefix: "/v1",
   controllers: [UsersController],
@@ -658,6 +667,14 @@ export type Validated = InferValidator<typeof validator>;
 
 Bin `nextroller`, publicado no mesmo pacote (`"bin": { "nextroller": "./dist/cli/index.js" }`). O runtime (`src/index.ts`) nunca importa nada de `src/cli/`.
 
+Comandos:
+
+```
+nextroller make:module <name>
+nextroller make:middleware <name>
+nextroller routes
+```
+
 ### `nextroller make:module <nome>`
 
 ```bash
@@ -706,7 +723,51 @@ Critérios:
 - O código gerado compila sem ajustes (com `experimentalDecorators`) e segue as convenções (aspas duplas, ponto e vírgula, imports relativos dentro do módulo).
 - **Dependências:** `node:fs`, `node:path`, `chalk` (cores) e parse manual de `process.argv`. Nenhuma outra.
 - **Erros e saída:** em inglês, coloridos com `chalk` (✔ verde no sucesso, `CREATE` verde, path do `route.ts` em ciano, `✖ Error:` vermelho em `stderr`, `⚠ Warning:` amarelo em `stderr`). Exit code `1` em erro. `chalk` desliga cores sozinho fora de TTY (pipe, CI, testes), então o texto puro é o contrato testado.
-- Comando desconhecido ou sem argumento imprime o uso (`Usage: nextroller make:module <name>` + exemplo) e sai com `1`.
+- Comando desconhecido, sem argumento ou com argumentos a mais imprime o uso (`Usage: nextroller <command>` + lista de comandos e exemplos) e sai com `1`.
+
+### `nextroller make:middleware <nome>`
+
+```bash
+npx nextroller make:middleware rate_limit
+```
+
+Gera `app/api/middlewares/rate_limit.ts`:
+
+```ts
+import type { HttpContext, Middleware } from "nextroller";
+
+export class RateLimitMiddleware implements Middleware {
+  async run(ctx: HttpContext, next: () => Promise<Response>) {
+    return next();
+  }
+}
+```
+
+- **Nome:** mesma conversão do `make:module` (`rateLimit`/`rate-limit` → `rate_limit`). Sufixo `middleware` é removido (`LoggerMiddleware` → `logger.ts`, classe `LoggerMiddleware`). Nome que vira vazio (`middleware`) é rejeitado.
+- **Raiz:** `app/` ou `src/app/`, como no `make:module`. Cria `api/middlewares/` se não existir.
+- **Sem sobrescrever:** aborta se o arquivo já existir.
+- **Não edita nada.** Imprime o import e as duas formas de registrar: `middlewares: [..., XMiddleware]` no `route.ts` ou `@Use(XMiddleware)`.
+- Mesmas regras de saída, cores e exit code do `make:module`.
+
+### `nextroller routes`
+
+```
+  METHOD  PATH                     HANDLER                     AUTH          MIDDLEWARES
+  GET     /api/users               UsersController.index       public        LoggerMiddleware
+  GET     /api/users/me            UsersController.me          auth          LoggerMiddleware
+  POST    /api/orders/:id/approve  OrdersController.approve    auth + guard  LoggerMiddleware, AuditMiddleware
+
+  3 routes
+```
+
+- **Análise estática**, sem executar código do app (o CLI não tem TypeScript nem transform de decorators; executar o app teria efeitos colaterais como conexão com banco).
+- Lê `app/api/[[...path]]/route.ts` (ou `src/app/...`): `basePath`, `prefix`, `controllers` e `middlewares` do objeto passado a `createHandler`. Resolve os imports dos controllers (relativos ou `@/`, este pelo `paths["@/*"]` do `tsconfig.json`; sem `paths`, raiz do projeto).
+- Em cada controller, lê `@Controller` (prefix, `resource: true`), `@Auth` (com/sem guard), `@Use`, decorators de verbo e `@Public`. Expande `resource` igual ao runtime (decorator de verbo substitui a rota resource). Ignora comentários, strings, membros `static`, getters/setters e o construtor.
+- Colunas: verbo, path completo, `Classe.método`, auth (`-` sem `@Auth`, `public`, `auth`, `auth + guard`) e middlewares na ordem de execução (globais → classe → método; instância `new X(...)` aparece como `X`).
+- Ordenado por path (segmentos fixos antes de parâmetros) e verbo.
+- **Avisos** em `stderr` (exit code `0`): argumento não literal (`@Controller(PREFIX)` aparece como `<dynamic>`; `basePath`/`prefix` não literal usa o default), controller sem rotas, `app/api/modules/*/controller.ts` não registrado no `createHandler`.
+- **Erros** (exit code `1`): sem `route.ts`, sem chamada `createHandler({ ... })`, `controllers` que não é array literal, import de controller não resolvido, classe sem `@Controller`.
+- Limitações: decorators reconhecidos pelo nome importado (sem alias `import { Get as G }`); controllers precisam estar listados literalmente em `controllers`. Validações do runtime (rota duplicada, `@Public` sem `@Auth`, ...) não são repetidas: valem as do `createHandler`.
 
 ## Em aberto
 
@@ -715,7 +776,6 @@ Critérios:
 - **`ctx.auth` opcional em ação pública:** hoje `auth` é tipado como não opcional em todas as ações.
 - **Herança de controllers:** metadata hoje é só da própria classe.
 - **`@Auth` em método** (proteger uma ação isolada de controller público).
-- **Listagem de rotas:** comando `nextroller routes` (no mesmo bin do `make:module`) lendo a metadata e imprimindo verbo, path, controller, auth/guard e middlewares.
 
 ## Convenções de código
 
