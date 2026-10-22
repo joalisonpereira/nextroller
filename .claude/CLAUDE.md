@@ -35,14 +35,19 @@ src/
   context.ts        # createContext, HttpContext
   controller.ts     # defineController, ControllerClass, RouteConfig, validação de route
   handler.ts        # createHandler: registro, ordenação, conflitos, onError
+  errors.ts         # RouteNotFoundError, MethodNotAllowedError
+  cli/
+    index.ts        # bin `nextroller`: parse de argv e comandos
+    templates.ts    # templates do make:module
 tests/              # testes da lib
 examples/next-app/  # app Next de exemplo consumindo a lib
 ```
 
 ## Dependências
 
-- `hono`: dependency. Detalhe de implementação, não vaza na API pública (exceto `ctx.raw` e `HTTPException`, reexportado pela lib).
+- `hono`: dependency. Detalhe de implementação, não vaza na API pública (exceto `ctx.raw` e `HTTPException`, reexportado pela lib e base de `RouteNotFoundError`/`MethodNotAllowedError`).
 - `zod`: **peerDependency**. Schemas do usuário e o `instanceof z.ZodError` do handler precisam usar a mesma cópia do zod.
+- `chalk`: dependency, usado **só pelo CLI** (cores da saída). O runtime nunca importa `chalk`: logs de servidor seguem sem ANSI e o bundle serverless não carrega a dependência.
 - `next`: não é importado pela lib. `createHandler()` trabalha só com `Request` / `Response` da Web API.
 
 ## Princípios de design
@@ -139,7 +144,13 @@ createHandler({
   controllers: ControllerClass[], // lista explícita de controllers
   basePath?: string,              // default "/api" (onde o catch-all está montado)
   prefix?: string,                // prefixo global, ex.: "/v1"
+  onError?: ErrorHook,            // hook de erro customizável (ver abaixo)
 }) => { GET, POST, PUT, PATCH, DELETE }
+
+type ErrorHook = (
+  err: unknown,
+  request: Request,
+) => Response | void | Promise<Response | void>;
 ```
 
 Responsabilidades:
@@ -148,7 +159,8 @@ Responsabilidades:
 - **ordenar por especificidade** antes de registrar: segmentos fixos antes de parâmetros (`/users/me` antes de `/users/:id`). Hono usa a primeira rota que casar na ordem de registro.
 - lançar erro na inicialização para rota duplicada (mesmo verbo + path), indicando os dois controllers
 - instanciar o controller por request e aplicar as regras de resposta
-- `onError` central (tabela abaixo)
+- responder 404 e 405 em JSON quando nenhuma rota casa (tabela "Respostas automáticas"), passando pelo `onError`
+- `onError` central (tabela "Mapeamento de erros"), com hook do usuário antes do mapeamento padrão
 
 ### HttpContext
 
@@ -165,7 +177,16 @@ createContext(c: Context) => {
     params(schema),          // z.infer<S>; parâmetros do path
     headers(schema),         // z.infer<S>; headers (chaves em minúsculo)
   },
-  response: { ok, created, noContent, notFound, status },
+  response: {
+    ok(data, init?),            // 200 JSON
+    created(data, init?),       // 201 JSON
+    noContent(init?),           // 204 sem corpo
+    badRequest(message?, init?), // 400 { error }
+    forbidden(message?, init?),  // 403 { error }
+    notFound(message?, init?),   // 404 { error }
+    redirect(url, status?),     // 302 por padrão; aceita 301, 303, 307, 308
+    status(code, data?, init?), // qualquer status; data vira JSON
+  },
 }
 export type HttpContext = ReturnType<typeof createContext>;
 ```
@@ -179,20 +200,68 @@ export type HttpContext = ReturnType<typeof createContext>;
 - `query` com chave repetida (`?tag=a&tag=b`) entrega `string[]` para aquela chave; chave única entrega `string`.
 - Uma origem por chamada; para validar body e query, duas chamadas.
 
+`response.*`:
+
+- `init` é `{ headers?: HeadersInit }`. Headers extras e cookies vão por ele: `response.ok(data, { headers: { "Set-Cookie": "..." } })`. Vários cookies: passar `Headers` com `append`.
+- Helpers de erro devolvem `{ error: message }`, o mesmo formato do handler central. Mensagens padrão em inglês: `"Bad request"` (400), `"Forbidden"` (403), `"Not found"` (404).
+- Helpers **retornam** `Response`, não lançam. O controller faz `return response.forbidden()`. Para interromper de dentro de um service, lançar `HTTPException`.
+- `redirect` aceita URL absoluta ou relativa e rejeita status fora de 301/302/303/307/308 (erro em runtime).
+
 `request`:
 
 - Mesma instância recebida pelo route handler (`c.req.raw`). Lib tipa como `Request` para não depender de `next`; usuário faz `request as NextRequest` se precisar de `nextUrl`/`cookies`.
 - Body é stream de leitura única. Corpo JSON deve ser lido via `validate.body()` (usa cache de body do Hono). Ler `request.json()` direto consome o stream e quebra um `validate.body()` posterior. Usar `request` para metadados (`url`, `method`, `signal`) ou leituras não-JSON (`formData()`, stream).
 
+### Respostas automáticas
+
+Sem rota casando, o handler gera um erro e o trata como qualquer outro (fluxo de "Mapeamento de erros"). Resposta padrão em JSON (nunca o 404 padrão em texto do Hono):
+
+| situação                                  | erro                          | status | corpo                              | header                     |
+| ----------------------------------------- | ----------------------------- | ------ | ---------------------------------- | -------------------------- |
+| nenhum path registrado casa               | `RouteNotFoundError`          | 404    | `{ error: "Route not found" }`     |                            |
+| path casa, mas não com o verbo da request | `MethodNotAllowedError`       | 405    | `{ error: "Method not allowed" }`  | `Allow: GET, PUT, PATCH` (verbos registrados para o path) |
+
+- Os dois estendem `HTTPException` e são exportados pela lib. `MethodNotAllowedError.allow` traz os verbos aceitos.
+- Para decidir entre 404 e 405, o handler testa o path contra as rotas dos outros verbos. A lista é montada na inicialização, junto com a ordenação.
+- Passam pelo `onError`: o hook pode customizar mensagem/formato (`if (err instanceof RouteNotFoundError) return ...`).
+- No 405, se a `Response` final (padrão ou do hook) não tiver `Allow`, a lib adiciona.
+- Não geram `console.error` (são `HTTPException`).
+
 ### Mapeamento de erros (`onError` em `createHandler()`)
+
+Fluxo quando o controller (ou service) lança, ou quando nenhuma rota casa (404/405):
+
+1. Se `createHandler` recebeu `onError`, ele é chamado com `(err, request)`.
+2. Se o hook devolve `Response`, ela é a resposta final.
+3. Se devolve `undefined`, segue para o mapeamento padrão:
 
 | erro            | status       | corpo                                         |
 | --------------- | ------------ | --------------------------------------------- |
-| `z.ZodError`    | 422          | `{ error: "Dados inválidos", issues }`        |
+| `z.ZodError`    | 422          | `{ error: "Validation failed", issues }`      |
 | `HTTPException` | `err.status` | `{ error: err.message }`                      |
-| outros          | 500          | `{ error: "Erro interno" }` + `console.error` |
+| outros          | 500          | `{ error: "Internal server error" }` + `console.error` |
 
-Código do usuário sinaliza erros HTTP lançando `HTTPException`.
+- Uso típico do hook: log/Sentry (devolve `undefined`; filtrar `HTTPException` para não registrar 404/405) ou mapear erros de domínio (`if (err instanceof NotFoundError) return Response.json(..., { status: 404 })`).
+- `console.error` do 500 padrão só roda quando não há `onError`. Com hook, o log é responsabilidade do usuário.
+- Erro lançado dentro do próprio `onError` vira 500 padrão + `console.error` com os dois erros.
+- Código do usuário sinaliza erros HTTP lançando `HTTPException`.
+
+```ts
+export const { GET, POST, PUT, PATCH, DELETE } = createHandler({
+  controllers: [UsersController],
+  onError(err, request) {
+    if (err instanceof RouteNotFoundError) {
+      return Response.json({ code: "ROUTE_NOT_FOUND", message: err.message }, { status: 404 });
+    }
+    if (!(err instanceof HTTPException)) {
+      Sentry.captureException(err, { extra: { url: request.url } });
+    }
+    if (err instanceof NotFoundError) {
+      return Response.json({ error: err.message }, { status: 404 });
+    }
+  },
+});
+```
 
 ## Estrutura do app consumidor
 
@@ -260,7 +329,7 @@ class UsersController {
 
   async show({ params, response }: HttpContext) {
     const user = await this.users.find(params.id);
-    return user ?? response.notFound("Usuário não encontrado");
+    return user ?? response.notFound("User not found");
   }
 
   async store({ validate, response }: HttpContext) {
@@ -307,22 +376,74 @@ export const listUsers = z.object({
 });
 ```
 
+## CLI
+
+Bin `nextroller`, publicado no mesmo pacote (`"bin": { "nextroller": "./dist/cli/index.js" }`). O runtime (`src/index.ts`) nunca importa nada de `src/cli/`.
+
+### `nextroller make:module <nome>`
+
+```bash
+npx nextroller make:module order_items
+```
+
+Gera:
+
+```
+app/api/modules/order_items/
+  order_items_controller.ts
+  order_items_service.ts
+  order_items_validator.ts
+```
+
+Critérios:
+
+- **Nome:** aceita `snake_case`, `kebab-case`, `camelCase` ou `PascalCase` e converte para `snake_case` (`orderItems` → `order_items`). Não pluraliza: o usuário já passa no plural. Nome vazio ou com caractere fora de `[a-zA-Z0-9_-]` é rejeitado.
+- **Raiz:** procura `app/` e depois `src/app/` no diretório atual. Se não achar nenhum, aborta com erro.
+- **Sem sobrescrever:** aborta se `app/api/modules/<nome>/` já existir. Não há `--force`.
+- **Não edita `route.ts`.** Ao terminar, lista os arquivos criados e imprime o import e a entrada para adicionar a `controllers` (path do `route.ts` reflete `app/` ou `src/app/`):
+  ```
+  ✔ Module order_items created
+
+    CREATE  app/api/modules/order_items/order_items_controller.ts
+    CREATE  app/api/modules/order_items/order_items_service.ts
+    CREATE  app/api/modules/order_items/order_items_validator.ts
+
+  Next step: register the controller in app/api/[[...path]]/route.ts
+
+      import OrderItemsController from "@/app/api/modules/order_items/order_items_controller";
+
+      controllers: [..., OrderItemsController]
+  ```
+- **Nomes gerados:**
+  - classe `OrderItemsController` e serviço `OrderItemsService` (PascalCase do nome);
+  - `prefix` `"/order-items"` (kebab-case do nome);
+  - schemas `createSchema`, `updateSchema` e `listSchema`, que o usuário renomeia à vontade.
+- **Conteúdo dos templates:**
+  - controller com `static route = { prefix, resource: true } as const`, os 5 métodos CRUD delegando ao service e `export default defineController(...)`;
+  - service com os métodos correspondentes lançando `new Error("Not implemented")`;
+  - validator com `createSchema`, `updateSchema = createSchema.partial()` e `listSchema` paginado.
+- O código gerado compila sem ajustes e segue as convenções (aspas duplas, ponto e vírgula, imports relativos dentro do módulo).
+- **Dependências:** `node:fs`, `node:path`, `chalk` (cores) e parse manual de `process.argv`. Nenhuma outra.
+- **Erros e saída:** em inglês, coloridos com `chalk` (✔ verde no sucesso, `CREATE` verde, path do `route.ts` em ciano, `✖ Error:` vermelho em `stderr`). Exit code `1` em erro. `chalk` desliga cores sozinho fora de TTY (pipe, CI, testes), então o texto puro é o contrato testado.
+- Comando desconhecido ou sem argumento imprime o uso (`Usage: nextroller make:module <name>` + exemplo) e sai com `1`.
+
 ## Em aberto
 
 - **Descoberta automática de controllers:** script de codegen (e/ou plugin `withNextroller` no `next.config`) que varre `app/api/modules/*/*_controller.ts` e gera a lista passada a `controllers`. Seria açúcar opcional sobre a lista explícita. `require.context` e leitura do disco em runtime descartados (Turbopack / bundle serverless).
 - **`params` tipado pelo path:** genérico opcional `HttpContext<"/:id/activate">` para tipar `params.id`. Como `as const` preserva o path literal em `actions`, há base para inferir isso a partir do `route` no futuro.
-- **Listagem de rotas:** comando `nextroller routes` imprimindo verbo, path e controller (compensa a falta de visão central).
+- **Listagem de rotas:** comando `nextroller routes` (no mesmo bin do `make:module`) imprimindo verbo, path e controller (compensa a falta de visão central).
 
 ## Convenções de código
 
 - TypeScript strict. ESM.
 - Formatação: aspas duplas, ponto e vírgula.
-- Mensagens de erro padrão em pt-BR.
+- **Todas as mensagens em inglês por padrão:** respostas HTTP, erros de configuração, saída do CLI e código gerado pelos templates. Customização de texto fica com o usuário (`message` nos helpers, `onError`).
 
 ## Próximos passos
 
 1. Setup do pacote (`package.json` com `exports`, build ESM + `.d.ts`, `zod` como peer).
 2. Implementar `src/context.ts`, `src/controller.ts` e `src/handler.ts`.
 3. Testes de tipo para `defineController` (casos que devem e não devem compilar) e checar legibilidade das mensagens de erro do TS.
-4. Testes do handler chamando `GET/POST/...` com `Request` direto (sem subir Next): ordenação, conflitos, regras de resposta, mapeamento de erros.
-5. `examples/next-app` com o módulo `users`.
+4. Testes do handler chamando `GET/POST/...` com `Request` direto (sem subir Next): ordenação, conflitos, regras de resposta, helpers de `response`, 404/405 com `Allow` (inclusive via `onError`), `onError` (devolvendo `Response`, devolvendo `undefined`, lançando) e mapeamento padrão.
+5. CLI `make:module`, com testes gerando em diretório temporário e checando se a saída compila (`tsc --noEmit`).
+6. `examples/next-app` com o módulo `users`.

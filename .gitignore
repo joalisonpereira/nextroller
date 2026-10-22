@@ -1,0 +1,8 @@
+node_modules/
+dist/
+tests/.tmp/
+examples/next-app/.next/
+examples/next-app/node_modules/
+examples/next-app/next-env.d.ts
+*.tsbuildinfo
+examples/next-app/nextroller.tgz
