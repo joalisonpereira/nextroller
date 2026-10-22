@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
   HTTPException,
   MethodNotAllowedError,
+  ForbiddenError,
   RouteNotFoundError,
   UnauthorizedError,
+  type AuthGuard,
   createHandler,
   defineController,
   type ControllerClass,
@@ -578,5 +580,120 @@ describe("autenticação", () => {
       "ProductsController: `route.auth` requires `authenticate` in createHandler",
     );
     expect(() => createHandler({ controllers: [Ping] })).not.toThrow();
+  });
+
+  describe("auth como função", () => {
+    function build(guard: AuthGuard, onError?: Parameters<typeof createHandler>[0]["onError"]) {
+      const spy = vi.fn(guard);
+      class OrdersController {
+        static route = {
+          prefix: "/orders",
+          resource: true,
+          auth: spy,
+          public: ["index"],
+          actions: { approve: [["POST", "PUT"], "/:id/approve"] },
+        } as const;
+
+        static instances = 0;
+
+        constructor() {
+          OrdersController.instances++;
+        }
+
+        index({ auth }: HttpContext) {
+          return { auth: auth ?? null };
+        }
+        show({ auth }: HttpContext) {
+          return { viewer: auth.id };
+        }
+        approve({ auth }: HttpContext) {
+          return { approvedBy: auth.role };
+        }
+      }
+      const { api, authenticate } = handler({
+        controllers: [defineController(OrdersController)],
+        ...(onError ? { onError } : {}),
+      });
+      return { api, authenticate, spy, OrdersController };
+    }
+
+    it("true libera a rota e recebe auth e dados da rota", async () => {
+      const { api, spy } = build(() => true);
+      expect(await send(api, "POST", "/api/orders/9/approve", "token-1")).toMatchObject({
+        status: 200,
+        body: { approvedBy: "admin" },
+      });
+      expect(spy).toHaveBeenCalledWith(
+        { id: "1", role: "admin" },
+        { controller: "OrdersController", action: "approve", method: "POST", path: "/api/orders/:id/approve" },
+      );
+      expect(Object.isFrozen(spy.mock.calls[0]![1])).toBe(true);
+    });
+
+    it("false vira 403 sem instanciar o controller", async () => {
+      const { api, OrdersController } = build((_auth, route) => route.action !== "show");
+      expect(await send(api, "GET", "/api/orders/9", "token-1")).toMatchObject({
+        status: 403,
+        body: { error: "Forbidden" },
+      });
+      expect(OrdersController.instances).toBe(0);
+      expect((await send(api, "POST", "/api/orders/9/approve", "token-1")).status).toBe(200);
+    });
+
+    it("aceita função assíncrona e só libera com true estrito", async () => {
+      const allowed = build(async (auth) => auth.role === "admin");
+      expect((await send(allowed.api, "GET", "/api/orders/1", "token-1")).body).toEqual({ viewer: "1" });
+      const truthy = build((() => 1) as unknown as AuthGuard);
+      expect((await send(truthy.api, "GET", "/api/orders/1", "token-1")).status).toBe(403);
+      const empty = build((() => undefined) as unknown as AuthGuard);
+      expect((await send(empty.api, "GET", "/api/orders/1", "token-1")).status).toBe(403);
+    });
+
+    it("sem usuário vira 401 antes de chamar a função", async () => {
+      const { api, spy } = build(() => true);
+      expect((await send(api, "GET", "/api/orders/1")).status).toBe(401);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("ações em public não chamam authenticate nem a função", async () => {
+      const { api, spy, authenticate } = build(() => false);
+      expect((await send(api, "GET", "/api/orders", "token-1")).body).toEqual({ auth: null });
+      expect(spy).not.toHaveBeenCalled();
+      expect(authenticate).not.toHaveBeenCalled();
+    });
+
+    it("403 passa pelo onError como ForbiddenError", async () => {
+      const onError = vi.fn((err: unknown) => {
+        if (err instanceof ForbiddenError) {
+          return Response.json({ code: "FORBIDDEN" }, { status: 403 });
+        }
+      });
+      const { api } = build(() => false, onError);
+      expect(await send(api, "GET", "/api/orders/1", "token-1")).toMatchObject({
+        status: 403,
+        body: { code: "FORBIDDEN" },
+      });
+      expect(onError.mock.calls[0]![0]).toBeInstanceOf(HTTPException);
+    });
+
+    it("erro lançado na função passa pelo mapeamento", async () => {
+      const { api } = build(() => {
+        throw new HTTPException(402, { message: "Plan required" });
+      });
+      expect(await send(api, "GET", "/api/orders/1", "token-1")).toMatchObject({
+        status: 402,
+        body: { error: "Plan required" },
+      });
+    });
+
+    it("auth como função sem authenticate falha na inicialização", () => {
+      class Guarded {
+        static route = { prefix: "/g", resource: true, auth: () => true } as const;
+        index() {}
+      }
+      expect(() => createHandler({ controllers: [defineController(Guarded)] })).toThrow(
+        "Guarded: `route.auth` requires `authenticate` in createHandler",
+      );
+    });
   });
 });

@@ -1,14 +1,14 @@
-import { defineController, type HttpContext } from "nextroller";
+import { defineController, type HttpContext, type Route } from "nextroller";
 import { ProductsService } from "./products_service";
 import { createSchema, listSchema, updateSchema } from "./products_validator";
 
 class ProductsController {
-  static route = {
+  static route: Route<ProductsController> = {
     prefix: "/products",
     resource: true,
-    auth: true,
+    auth: (auth) => auth.active,
     public: ["index", "show"],
-  } as const;
+  };
 
   constructor(private products = new ProductsService()) {}
 

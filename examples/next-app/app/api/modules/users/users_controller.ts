@@ -1,9 +1,9 @@
-import { defineController, type HttpContext } from "nextroller";
+import { defineController, type HttpContext, type Route } from "nextroller";
 import { UsersService } from "./users_service";
 import { createUser, updateUser, listUsers } from "./users_validator";
 
 class UsersController {
-  static route = {
+  static route: Route<UsersController> = {
     prefix: "/users",
     resource: true,
     auth: true,
@@ -13,7 +13,7 @@ class UsersController {
       activate: ["POST", "/:id/activate"],
       archive: ["PUT", "/:id/archive"],
     },
-  } as const;
+  };
 
   constructor(private users = new UsersService()) {}
 

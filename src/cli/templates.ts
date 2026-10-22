@@ -6,15 +6,15 @@ export interface ModuleNames {
 }
 
 export function controllerTemplate({ module, pascal, camel, kebab }: ModuleNames): string {
-  return `import { defineController, type HttpContext } from "nextroller";
+  return `import { defineController, type HttpContext, type Route } from "nextroller";
 import { ${pascal}Service } from "./${module}_service";
 import { createSchema, listSchema, updateSchema } from "./${module}_validator";
 
 class ${pascal}Controller {
-  static route = {
+  static route: Route<${pascal}Controller> = {
     prefix: "/${kebab}",
     resource: true,
-  } as const;
+  };
 
   constructor(private ${camel} = new ${pascal}Service()) {}
 

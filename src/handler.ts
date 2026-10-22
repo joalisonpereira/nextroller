@@ -3,13 +3,20 @@ import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
 import { z } from "zod";
 import { createContext, type AuthData } from "./context.js";
-import { MethodNotAllowedError, RouteNotFoundError, UnauthorizedError } from "./errors.js";
+import {
+  ForbiddenError,
+  MethodNotAllowedError,
+  RouteNotFoundError,
+  UnauthorizedError,
+} from "./errors.js";
 import {
   METHODS,
   RESOURCE_ACTIONS,
   controllerName,
   validateController,
   type ActionDef,
+  type AuthGuard,
+  type AuthRoute,
   type ControllerClass,
   type Method,
 } from "./controller.js";
@@ -41,6 +48,7 @@ interface RouteEntry {
   controller: ControllerClass;
   action: string;
   auth: boolean;
+  guard: AuthGuard | undefined;
 }
 
 function joinPaths(...parts: string[]): string {
@@ -90,9 +98,10 @@ function collectRoutes(
     const { auth, public: publicActions = [] } = controller.route;
     for (const [action, [verbs, path]] of defs) {
       const fullPath = joinPaths(base, controller.route.prefix, path);
-      const protectedRoute = auth === true && !publicActions.includes(action);
+      const isProtected = auth !== undefined && auth !== false && !publicActions.includes(action);
+      const guard = isProtected && typeof auth === "function" ? auth : undefined;
       for (const method of typeof verbs === "string" ? [verbs] : verbs) {
-        routes.push({ method, path: fullPath, controller, action, auth: protectedRoute });
+        routes.push({ method, path: fullPath, controller, action, auth: isProtected, guard });
       }
     }
   }
@@ -195,19 +204,32 @@ export function createHandler(options: HandlerOptions): Handlers {
     return errorResponse(500, { error: "Internal server error" });
   };
 
-  for (const { method, path, controller, action, auth } of routes) {
+  for (const { method, path, controller, action, auth, guard } of routes) {
     matcher.add(method, path, true);
+    const info: AuthRoute = Object.freeze({
+      controller: controllerName(controller),
+      action,
+      method,
+      path,
+    });
     app.on(method, path, async (c: Context) => {
       try {
-        const data = auth ? await authenticate!(c.req.raw) : undefined;
-        if (auth && data == null) {
-          throw new UnauthorizedError();
+        let data: AuthData | undefined;
+        if (auth) {
+          const resolved = await authenticate!(c.req.raw);
+          if (resolved == null) {
+            throw new UnauthorizedError();
+          }
+          if (guard && (await guard(resolved, info)) !== true) {
+            throw new ForbiddenError();
+          }
+          data = resolved;
         }
         const instance = new controller() as Record<
           string,
           (ctx: unknown) => unknown
         >;
-        return toResponse(await instance[action]!(createContext(c, data ?? undefined)));
+        return toResponse(await instance[action]!(createContext(c, data)));
       } catch (err) {
         return handleError(err, c.req.raw);
       }

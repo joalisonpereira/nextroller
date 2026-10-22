@@ -76,8 +76,10 @@ describe("nextroller make:module", () => {
 
     const controller = fs.readFileSync(path.join(dir, "order_items_controller.ts"), "utf8");
     expect(controller).toContain("class OrderItemsController {");
+    expect(controller).toContain("type Route } from \"nextroller\";");
+    expect(controller).toContain("static route: Route<OrderItemsController> = {");
     expect(controller).toContain('prefix: "/order-items",');
-    expect(controller).toContain("} as const;");
+    expect(controller).not.toContain("as const");
     expect(controller).toContain("private orderItems = new OrderItemsService()");
     expect(controller).toContain("export default defineController(OrderItemsController);");
 

@@ -15,6 +15,13 @@ export class MethodNotAllowedError extends HTTPException {
   }
 }
 
+export class ForbiddenError extends HTTPException {
+  constructor() {
+    super(403, { message: "Forbidden" });
+    this.name = "ForbiddenError";
+  }
+}
+
 export class UnauthorizedError extends HTTPException {
   constructor() {
     super(401, { message: "Unauthorized" });

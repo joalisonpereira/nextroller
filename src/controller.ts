@@ -1,24 +1,48 @@
+import type { AuthData } from "./context.js";
+
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Path = `/${string}`;
 export type ActionDef = readonly [Method | readonly Method[], Path];
 
-export interface RouteConfig {
-  readonly prefix: Path;
-  readonly resource?: boolean;
-  readonly actions?: { readonly [method: string]: ActionDef };
-  readonly auth?: boolean;
-  readonly public?: readonly string[];
-}
-
-export interface ControllerClass {
-  new (...args: any[]): object;
-  readonly route: RouteConfig;
-}
+type IsAny<T> = 0 extends 1 & T ? true : false;
 
 type Methods<T> = {
   [K in keyof T]: T[K] extends (...a: any[]) => any ? K : never;
 }[keyof T] &
   string;
+
+type ActionName<T> = IsAny<T> extends true ? string : Methods<T>;
+
+type ActionMap<T> = IsAny<T> extends true
+  ? { readonly [action: string]: ActionDef }
+  : [Methods<T>] extends [never]
+    ? { readonly [action: string]: never }
+    : { readonly [K in Methods<T>]?: ActionDef };
+
+export interface AuthRoute<T = any> {
+  readonly controller: string;
+  readonly action: ActionName<T>;
+  readonly method: Method;
+  readonly path: string;
+}
+
+export type AuthGuard<T = any> = {
+  bivarianceHack(auth: AuthData, route: AuthRoute<T>): boolean | Promise<boolean>;
+}["bivarianceHack"];
+
+export interface Route<T = any> {
+  readonly prefix: Path;
+  readonly resource?: boolean;
+  readonly actions?: ActionMap<T>;
+  readonly auth?: boolean | AuthGuard<T>;
+  readonly public?: readonly ActionName<T>[];
+}
+
+export interface ControllerClass {
+  new (...args: any[]): object;
+  readonly route: Route;
+}
+
 type ActionsOf<C> = C extends { route: { actions: infer A } } ? A : {};
 type HasPublic<C> = C extends { route: { public: readonly string[] } } ? true : false;
 
@@ -31,7 +55,7 @@ type CheckActions<C extends ControllerClass> = {
 };
 
 type CheckPublic<C extends ControllerClass> = HasPublic<C> extends true
-  ? { route: { auth: true; public: readonly Methods<InstanceType<C>>[] } }
+  ? { route: { auth: true | AuthGuard; public: readonly Methods<InstanceType<C>>[] } }
   : {};
 
 export const METHODS: readonly Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -83,8 +107,8 @@ export function validateController(controller: unknown): asserts controller is C
   if (resource !== undefined && typeof resource !== "boolean") {
     throw fail("`route.resource` must be a boolean");
   }
-  if (auth !== undefined && typeof auth !== "boolean") {
-    throw fail("`route.auth` must be a boolean");
+  if (auth !== undefined && typeof auth !== "boolean" && typeof auth !== "function") {
+    throw fail("`route.auth` must be a boolean or a function");
   }
   if (
     actions !== undefined &&
@@ -117,8 +141,8 @@ export function validateController(controller: unknown): asserts controller is C
   if (!Array.isArray(publicActions) || !publicActions.every((a) => typeof a === "string")) {
     throw fail("`route.public` must be an array of method names");
   }
-  if (auth !== true) {
-    throw fail("`route.public` requires `route.auth: true`");
+  if (auth !== true && typeof auth !== "function") {
+    throw fail("`route.public` requires `route.auth`");
   }
   for (const action of publicActions as string[]) {
     const routed =

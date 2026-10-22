@@ -54,7 +54,7 @@ describe("defineController (validação em runtime)", () => {
 
   it("rejeita auth não boolean", () => {
     expect(define(class A { static route = { prefix: "/a", resource: true, auth: "yes" }; index() {} })).toThrow(
-      "`route.auth` must be a boolean",
+      "`route.auth` must be a boolean or a function",
     );
   });
 
@@ -70,12 +70,13 @@ describe("defineController (validação em runtime)", () => {
       );
     expect(withPublic({ auth: true, public: "index" })).toThrow("`route.public` must be an array");
     expect(withPublic({ auth: true, public: [1] })).toThrow("`route.public` must be an array");
-    expect(withPublic({ public: ["index"] })).toThrow("`route.public` requires `route.auth: true`");
-    expect(withPublic({ auth: false, public: ["index"] })).toThrow("requires `route.auth: true`");
+    expect(withPublic({ public: ["index"] })).toThrow("`route.public` requires `route.auth`");
+    expect(withPublic({ auth: false, public: ["index"] })).toThrow("`route.public` requires `route.auth`");
     expect(withPublic({ auth: true, public: ["helper"] })).toThrow(
       'public action "helper" is not a route of this controller',
     );
     expect(withPublic({ auth: true, public: ["show"] })).toThrow('public action "show"');
     expect(withPublic({ auth: true, public: ["index", "go"] })).not.toThrow();
+    expect(withPublic({ auth: () => true, public: ["index"] })).not.toThrow();
   });
 });
