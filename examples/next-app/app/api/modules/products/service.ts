@@ -1,4 +1,4 @@
-import type { CreateInput, UpdateInput } from "./validator";
+import type { Input } from "./validator";
 
 export class ProductsService {
   async list(page: number): Promise<unknown[]> {
@@ -9,11 +9,11 @@ export class ProductsService {
     throw new Error("Not implemented");
   }
 
-  async create(ownerId: string, data: CreateInput): Promise<unknown> {
+  async create(ownerId: string, data: Input["create"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
-  async update(id: string, data: UpdateInput): Promise<unknown> {
+  async update(id: string, data: Input["update"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 

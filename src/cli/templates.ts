@@ -8,7 +8,7 @@ export interface ModuleNames {
 export function controllerTemplate({ pascal, camel, kebab }: ModuleNames): string {
   return `import { defineController, type HttpContext, type Route } from "nextroller";
 import { ${pascal}Service } from "./service";
-import { createSchema, listSchema, updateSchema } from "./validator";
+import { schemas } from "./validator";
 
 class ${pascal}Controller {
   static route: Route<${pascal}Controller> = {
@@ -19,7 +19,7 @@ class ${pascal}Controller {
   constructor(private ${camel} = new ${pascal}Service()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = validate.query(listSchema);
+    const { page } = validate.query(schemas.list);
     return this.${camel}.list(page);
   }
 
@@ -29,12 +29,12 @@ class ${pascal}Controller {
   }
 
   async store({ validate, response }: HttpContext) {
-    const data = await validate.body(createSchema);
+    const data = await validate.body(schemas.create);
     return response.created(await this.${camel}.create(data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.${camel}.update(params.id, await validate.body(updateSchema));
+    return this.${camel}.update(params.id, await validate.body(schemas.update));
   }
 
   async destroy({ params }: HttpContext<"/:id">) {
@@ -47,7 +47,7 @@ export default defineController(${pascal}Controller);
 }
 
 export function serviceTemplate({ pascal }: ModuleNames): string {
-  return `import type { CreateInput, UpdateInput } from "./validator";
+  return `import type { Input } from "./validator";
 
 export class ${pascal}Service {
   async list(page: number): Promise<unknown[]> {
@@ -58,11 +58,11 @@ export class ${pascal}Service {
     throw new Error("Not implemented");
   }
 
-  async create(data: CreateInput): Promise<unknown> {
+  async create(data: Input["create"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
-  async update(id: string, data: UpdateInput): Promise<unknown> {
+  async update(id: string, data: Input["update"]): Promise<unknown> {
     throw new Error("Not implemented");
   }
 
@@ -74,19 +74,21 @@ export class ${pascal}Service {
 }
 
 export function validatorTemplate(): string {
-  return `import { z } from "zod";
+  return `import type { InferSchemas } from "nextroller";
+import { z } from "zod";
 
-export const createSchema = z.object({
+const create = z.object({
   name: z.string().min(1),
 });
 
-export const updateSchema = createSchema.partial();
+export const schemas = {
+  create,
+  update: create.partial(),
+  list: z.object({
+    page: z.coerce.number().int().min(1).default(1),
+  }),
+};
 
-export const listSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-});
-
-export type CreateInput = z.infer<typeof createSchema>;
-export type UpdateInput = z.infer<typeof updateSchema>;
+export type Input = InferSchemas<typeof schemas>;
 `;
 }

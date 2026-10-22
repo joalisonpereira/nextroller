@@ -88,7 +88,10 @@ describe("nextroller make:module", () => {
     expect(service).toContain('throw new Error("Not implemented");');
 
     const validator = fs.readFileSync(path.join(dir, "validator.ts"), "utf8");
-    expect(validator).toContain("export const updateSchema = createSchema.partial();");
+    expect(validator).toContain("update: create.partial(),");
+    expect(validator).toContain("export type Input = InferSchemas<typeof schemas>;");
+    expect(controller).toContain("validate.body(schemas.create)");
+    expect(service).toContain('async create(data: Input["create"])');
 
     const result = typecheck();
     expect(result.stdout + result.stderr).toBe("");

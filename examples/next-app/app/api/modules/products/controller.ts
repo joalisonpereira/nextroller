@@ -1,6 +1,6 @@
 import { defineController, type HttpContext, type Route } from "nextroller";
 import { ProductsService } from "./service";
-import { createSchema, listSchema, updateSchema } from "./validator";
+import { schemas } from "./validator";
 
 class ProductsController {
   static route: Route<ProductsController> = {
@@ -13,7 +13,7 @@ class ProductsController {
   constructor(private products = new ProductsService()) {}
 
   async index({ validate }: HttpContext) {
-    const { page } = validate.query(listSchema);
+    const { page } = validate.query(schemas.list);
     return this.products.list(page);
   }
 
@@ -23,12 +23,15 @@ class ProductsController {
   }
 
   async store({ auth, validate, response }: HttpContext) {
-    const data = await validate.body(createSchema);
+    const data = await validate.body(schemas.create);
     return response.created(await this.products.create(auth.id, data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {
-    return this.products.update(params.id, await validate.body(updateSchema));
+    return this.products.update(
+      params.id,
+      await validate.body(schemas.update),
+    );
   }
 
   async destroy({ params }: HttpContext<"/:id">) {

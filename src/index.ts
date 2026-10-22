@@ -10,7 +10,7 @@ export type {
 } from "./controller.js";
 export { createHandler } from "./handler.js";
 export type { Authenticate, ErrorHook, HandlerOptions, Handlers } from "./handler.js";
-export type { HttpContext, Register } from "./context.js";
+export type { HttpContext, InferSchemas, Register } from "./context.js";
 export {
   ForbiddenError,
   MethodNotAllowedError,

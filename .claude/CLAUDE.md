@@ -263,6 +263,33 @@ export type HttpContext<P extends string = string> = ReturnType<typeof createCon
 - `query` com chave repetida (`?tag=a&tag=b`) entrega `string[]` para aquela chave; chave única entrega `string`.
 - Uma origem por chamada; para validar body e query, duas chamadas.
 
+`InferSchemas` (só tipo):
+
+```ts
+export type InferSchemas<T extends Record<string, z.ZodType>> = { [K in keyof T]: z.infer<T[K]> };
+```
+
+Tipa de uma vez um objeto de schemas. Padrão do `validator.ts` de cada módulo:
+
+```ts
+import type { InferSchemas } from "nextroller";
+import { z } from "zod";
+
+const create = z.object({ name: z.string().min(1) });
+
+export const schemas = {
+  create,
+  update: create.partial(),
+  list: z.object({ page: z.coerce.number().int().min(1).default(1) }),
+};
+
+export type Input = InferSchemas<typeof schemas>;
+```
+
+- Controller usa `schemas.create`; service tipa com `Input["create"]`. Schema novo em `schemas` ganha tipo sem editar mais nada.
+- Schemas auxiliares (como `create`) ficam como `const` não exportado: escopo do módulo já os mantém privados.
+- `Input["list"]` é o tipo de saída do Zod (com `default` aplicado).
+
 `response.*`:
 
 - `init` é `{ headers?: HeadersInit }`. Headers extras e cookies vão por ele: `response.ok(data, { headers: { "Set-Cookie": "..." } })`. Vários cookies: passar `Headers` com `append`.
@@ -289,7 +316,7 @@ class ProductsController {
   };
 
   async store({ auth, validate, response }: HttpContext) {
-    const data = await validate.body(createSchema);
+    const data = await validate.body(schemas.create);
     return response.created(await this.products.create(auth.id, data));
   }
 }
@@ -559,11 +586,11 @@ Critérios:
   - arquivos `controller.ts`, `service.ts` e `validator.ts` (sem prefixo; o módulo é a pasta);
   - classe `OrderItemsController` e serviço `OrderItemsService` (PascalCase do nome);
   - `prefix` `"/order-items"` (kebab-case do nome);
-  - schemas `createSchema`, `updateSchema` e `listSchema`, que o usuário renomeia à vontade.
+  - objeto `schemas` com `create`, `update` e `list` e tipo `Input = InferSchemas<typeof schemas>`, que o usuário estende à vontade.
 - **Conteúdo dos templates:**
   - controller com `static route: Route<OrderItemsController> = { prefix, resource: true }`, os 5 métodos CRUD delegando ao service (`HttpContext<"/:id">` nos que leem `params.id`) e `export default defineController(...)`;
   - service com os métodos correspondentes lançando `new Error("Not implemented")`;
-  - validator com `createSchema`, `updateSchema = createSchema.partial()` e `listSchema` paginado.
+  - validator com `const create` privado e `schemas = { create, update: create.partial(), list }` (paginado), mais `export type Input = InferSchemas<typeof schemas>`; controller usa `schemas.*` e service `Input["create"]`/`Input["update"]`.
 - O código gerado compila sem ajustes e segue as convenções (aspas duplas, ponto e vírgula, imports relativos dentro do módulo).
 - **Dependências:** `node:fs`, `node:path`, `chalk` (cores) e parse manual de `process.argv`. Nenhuma outra.
 - **Erros e saída:** em inglês, coloridos com `chalk` (✔ verde no sucesso, `CREATE` verde, path do `route.ts` em ciano, `✖ Error:` vermelho em `stderr`). Exit code `1` em erro. `chalk` desliga cores sozinho fora de TTY (pipe, CI, testes), então o texto puro é o contrato testado.
