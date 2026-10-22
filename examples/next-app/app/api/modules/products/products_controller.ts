@@ -6,6 +6,8 @@ class ProductsController {
   static route = {
     prefix: "/products",
     resource: true,
+    auth: true,
+    public: ["index", "show"],
   } as const;
 
   constructor(private products = new ProductsService()) {}
@@ -20,9 +22,9 @@ class ProductsController {
     return item ?? response.notFound();
   }
 
-  async store({ validate, response }: HttpContext) {
+  async store({ auth, validate, response }: HttpContext) {
     const data = await validate.body(createSchema);
-    return response.created(await this.products.create(data));
+    return response.created(await this.products.create(auth.id, data));
   }
 
   async update({ params, validate }: HttpContext<"/:id">) {

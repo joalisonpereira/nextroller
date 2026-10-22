@@ -6,6 +6,8 @@ class UsersController {
   static route = {
     prefix: "/users",
     resource: true,
+    auth: true,
+    public: ["store"],
     actions: {
       me: ["GET", "/me"],
       activate: ["POST", "/:id/activate"],
@@ -38,8 +40,8 @@ class UsersController {
     await this.users.remove(params.id);
   }
 
-  async me({ headers }: HttpContext) {
-    return this.users.findByToken(headers.authorization);
+  async me({ auth }: HttpContext) {
+    return auth;
   }
 
   async activate({ params }: HttpContext<"/:id/activate">) {

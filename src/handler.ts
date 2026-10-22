@@ -2,8 +2,8 @@ import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
 import { z } from "zod";
-import { createContext } from "./context.js";
-import { MethodNotAllowedError, RouteNotFoundError } from "./errors.js";
+import { createContext, type AuthData } from "./context.js";
+import { MethodNotAllowedError, RouteNotFoundError, UnauthorizedError } from "./errors.js";
 import {
   METHODS,
   RESOURCE_ACTIONS,
@@ -19,10 +19,15 @@ export type ErrorHook = (
   request: Request,
 ) => Response | void | Promise<Response | void>;
 
+export type Authenticate = (
+  request: Request,
+) => AuthData | null | undefined | Promise<AuthData | null | undefined>;
+
 export interface HandlerOptions {
   controllers: ControllerClass[];
   basePath?: string;
   prefix?: string;
+  authenticate?: Authenticate;
   onError?: ErrorHook;
 }
 
@@ -35,6 +40,7 @@ interface RouteEntry {
   path: string;
   controller: ControllerClass;
   action: string;
+  auth: boolean;
 }
 
 function joinPaths(...parts: string[]): string {
@@ -81,10 +87,12 @@ function collectRoutes(
         `[nextroller] ${controllerName(controller)}: controller does not define any route`,
       );
     }
+    const { auth, public: publicActions = [] } = controller.route;
     for (const [action, [verbs, path]] of defs) {
       const fullPath = joinPaths(base, controller.route.prefix, path);
+      const protectedRoute = auth === true && !publicActions.includes(action);
       for (const method of typeof verbs === "string" ? [verbs] : verbs) {
-        routes.push({ method, path: fullPath, controller, action });
+        routes.push({ method, path: fullPath, controller, action, auth: protectedRoute });
       }
     }
   }
@@ -141,7 +149,7 @@ function errorResponse(
 }
 
 export function createHandler(options: HandlerOptions): Handlers {
-  const { controllers, onError } = options;
+  const { controllers, authenticate, onError } = options;
   const base = joinPaths(
     checkBase("basePath", options.basePath ?? "/api"),
     checkBase("prefix", options.prefix ?? ""),
@@ -149,6 +157,14 @@ export function createHandler(options: HandlerOptions): Handlers {
 
   const routes = collectRoutes(controllers, base).sort(compareSpecificity);
   checkConflicts(routes);
+
+  const unauthenticated = authenticate ? undefined : routes.find((route) => route.auth);
+  if (unauthenticated) {
+    throw new Error(
+      `[nextroller] ${controllerName(unauthenticated.controller)}: ` +
+        "`route.auth` requires `authenticate` in createHandler",
+    );
+  }
 
   const app = new Hono();
   const matcher = new TrieRouter<true>();
@@ -179,15 +195,19 @@ export function createHandler(options: HandlerOptions): Handlers {
     return errorResponse(500, { error: "Internal server error" });
   };
 
-  for (const { method, path, controller, action } of routes) {
+  for (const { method, path, controller, action, auth } of routes) {
     matcher.add(method, path, true);
     app.on(method, path, async (c: Context) => {
       try {
+        const data = auth ? await authenticate!(c.req.raw) : undefined;
+        if (auth && data == null) {
+          throw new UnauthorizedError();
+        }
         const instance = new controller() as Record<
           string,
           (ctx: unknown) => unknown
         >;
-        return toResponse(await instance[action]!(createContext(c)));
+        return toResponse(await instance[action]!(createContext(c, data ?? undefined)));
       } catch (err) {
         return handleError(err, c.req.raw);
       }

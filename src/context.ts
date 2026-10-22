@@ -1,6 +1,10 @@
 import type { Context } from "hono";
 import type { z } from "zod";
 
+export interface Register {}
+
+export type AuthData = Register extends { auth: infer A } ? A : unknown;
+
 interface ResponseOptions {
   headers?: HeadersInit;
 }
@@ -47,7 +51,7 @@ function queryValues(c: Context): Record<string, string | string[]> {
   return values;
 }
 
-export function createContext<P extends string = string>(c: Context) {
+export function createContext<P extends string = string>(c: Context, auth?: AuthData) {
   const params = c.req.param() as PathParams<P>;
   const query = c.req.query();
   const headers = c.req.header();
@@ -55,6 +59,7 @@ export function createContext<P extends string = string>(c: Context) {
   return {
     request: c.req.raw,
     raw: c,
+    auth: auth as AuthData,
     params,
     query,
     headers,

@@ -10,6 +10,12 @@ export interface User {
   token: string;
 }
 
+declare module "nextroller" {
+  interface Register {
+    auth: User;
+  }
+}
+
 const PAGE_SIZE = 10;
 
 const users = new Map<string, User>();
@@ -29,13 +35,9 @@ export class UsersService {
     return users.get(id) ?? null;
   }
 
-  async findByToken(authorization: string | undefined) {
+  async findByToken(authorization: string | null) {
     const token = authorization?.replace(/^Bearer /, "");
-    const user = [...users.values()].find((u) => u.token === token);
-    if (!user) {
-      throw new HTTPException(401, { message: "Unauthenticated" });
-    }
-    return user;
+    return [...users.values()].find((u) => u.token === token) ?? null;
   }
 
   async create(data: CreateUser) {

@@ -9,7 +9,7 @@ export class ProductsService {
     throw new Error("Not implemented");
   }
 
-  async create(data: CreateInput): Promise<unknown> {
+  async create(ownerId: string, data: CreateInput): Promise<unknown> {
     throw new Error("Not implemented");
   }
 

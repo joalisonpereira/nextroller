@@ -4,6 +4,7 @@ import {
   HTTPException,
   MethodNotAllowedError,
   RouteNotFoundError,
+  UnauthorizedError,
   createHandler,
   defineController,
   type ControllerClass,
@@ -441,5 +442,141 @@ describe("mapeamento de erros", () => {
       status: 503,
       body: { error: "Indisponível" },
     });
+  });
+});
+
+describe("autenticação", () => {
+  class ProductsController {
+    static route = {
+      prefix: "/products",
+      resource: true,
+      auth: true,
+      public: ["index", "show"],
+      actions: { mine: ["GET", "/mine"] },
+    } as const;
+
+    static instances = 0;
+
+    constructor() {
+      ProductsController.instances++;
+    }
+
+    index({ auth }: HttpContext) {
+      return { auth: auth ?? null };
+    }
+    show({ params }: HttpContext<"/:id">) {
+      return { id: params.id };
+    }
+    store({ auth }: HttpContext) {
+      return { owner: auth.id };
+    }
+    mine({ auth }: HttpContext) {
+      return { role: auth.role };
+    }
+  }
+
+  class PingController {
+    static route = { prefix: "/ping", actions: { ping: ["GET", "/"] } } as const;
+    ping({ auth }: HttpContext) {
+      return { auth: auth ?? null };
+    }
+  }
+
+  const Products = defineController(ProductsController);
+  const Ping = defineController(PingController);
+  const users = { "token-1": { id: "1", role: "admin" as const } };
+
+  function handler(options: Partial<Parameters<typeof createHandler>[0]> = {}) {
+    const authenticate = vi.fn(async (req: Request) => {
+      const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
+      return users[token as keyof typeof users] ?? null;
+    });
+    const api = createHandler({ controllers: [Products, Ping], authenticate, ...options });
+    return { api, authenticate };
+  }
+
+  async function send(api: ReturnType<typeof createHandler>, method: "GET" | "POST", path: string, token?: string) {
+    const headers = token ? { authorization: `Bearer ${token}` } : undefined;
+    const res = await api[method](request(method, path, method === "POST" ? {} : undefined, headers));
+    return { res, status: res.status, body: await res.json() };
+  }
+
+  it("rota protegida sem usuário vira 401 sem instanciar o controller", async () => {
+    const { api } = handler();
+    ProductsController.instances = 0;
+    expect(await send(api, "POST", "/api/products")).toMatchObject({
+      status: 401,
+      body: { error: "Unauthorized" },
+    });
+    expect((await send(api, "GET", "/api/products/mine", "invalid")).status).toBe(401);
+    expect(ProductsController.instances).toBe(0);
+  });
+
+  it("rota protegida com usuário expõe ctx.auth", async () => {
+    const { api, authenticate } = handler();
+    expect(await send(api, "POST", "/api/products", "token-1")).toMatchObject({
+      status: 200,
+      body: { owner: "1" },
+    });
+    expect((await send(api, "GET", "/api/products/mine", "token-1")).body).toEqual({ role: "admin" });
+    expect(authenticate).toHaveBeenCalledTimes(2);
+    expect(authenticate.mock.calls[0]![0]).toBeInstanceOf(Request);
+  });
+
+  it("ações em public e controllers sem auth não chamam authenticate", async () => {
+    const { api, authenticate } = handler();
+    expect((await send(api, "GET", "/api/products", "token-1")).body).toEqual({ auth: null });
+    expect((await send(api, "GET", "/api/products/7")).body).toEqual({ id: "7" });
+    expect((await send(api, "GET", "/api/ping", "token-1")).body).toEqual({ auth: null });
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  it("aceita authenticate síncrono e trata undefined como não autenticado", async () => {
+    const sync = handler({ authenticate: () => users["token-1"] });
+    expect((await send(sync.api, "POST", "/api/products")).body).toEqual({ owner: "1" });
+    const none = handler({ authenticate: () => undefined });
+    expect((await send(none.api, "POST", "/api/products")).status).toBe(401);
+  });
+
+  it("401 passa pelo onError como UnauthorizedError", async () => {
+    const onError = vi.fn((err: unknown) => {
+      if (err instanceof UnauthorizedError) {
+        return Response.json({ code: "UNAUTHORIZED" }, { status: 401 });
+      }
+    });
+    const { api } = handler({ onError });
+    expect(await send(api, "POST", "/api/products")).toMatchObject({
+      status: 401,
+      body: { code: "UNAUTHORIZED" },
+    });
+    expect(onError.mock.calls[0]![0]).toBeInstanceOf(UnauthorizedError);
+    expect(onError.mock.calls[0]![0]).toBeInstanceOf(HTTPException);
+  });
+
+  it("erro lançado no authenticate passa pelo mapeamento", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const forbidden = handler({
+      authenticate: () => {
+        throw new HTTPException(403, { message: "Token revoked" });
+      },
+    });
+    expect(await send(forbidden.api, "POST", "/api/products")).toMatchObject({
+      status: 403,
+      body: { error: "Token revoked" },
+    });
+    const broken = handler({
+      authenticate: async () => {
+        throw new Error("db down");
+      },
+    });
+    expect((await send(broken.api, "POST", "/api/products")).status).toBe(500);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it("auth sem authenticate falha na inicialização", () => {
+    expect(() => createHandler({ controllers: [Ping, Products] })).toThrow(
+      "ProductsController: `route.auth` requires `authenticate` in createHandler",
+    );
+    expect(() => createHandler({ controllers: [Ping] })).not.toThrow();
   });
 });

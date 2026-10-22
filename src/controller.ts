@@ -6,6 +6,8 @@ export interface RouteConfig {
   readonly prefix: Path;
   readonly resource?: boolean;
   readonly actions?: { readonly [method: string]: ActionDef };
+  readonly auth?: boolean;
+  readonly public?: readonly string[];
 }
 
 export interface ControllerClass {
@@ -18,6 +20,7 @@ type Methods<T> = {
 }[keyof T] &
   string;
 type ActionsOf<C> = C extends { route: { actions: infer A } } ? A : {};
+type HasPublic<C> = C extends { route: { public: readonly string[] } } ? true : false;
 
 type CheckActions<C extends ControllerClass> = {
   route: {
@@ -26,6 +29,10 @@ type CheckActions<C extends ControllerClass> = {
     };
   };
 };
+
+type CheckPublic<C extends ControllerClass> = HasPublic<C> extends true
+  ? { route: { auth: true; public: readonly Methods<InstanceType<C>>[] } }
+  : {};
 
 export const METHODS: readonly Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
@@ -38,7 +45,7 @@ export const RESOURCE_ACTIONS: Readonly<Record<string, ActionDef>> = {
 };
 
 export function defineController<C extends ControllerClass>(
-  controller: C & CheckActions<C>,
+  controller: C & CheckActions<C> & CheckPublic<C>,
 ): C {
   validateController(controller);
   return controller;
@@ -69,22 +76,25 @@ export function validateController(controller: unknown): asserts controller is C
     throw fail("missing `static route`");
   }
 
-  const { prefix, resource, actions } = route as Record<string, unknown>;
+  const { prefix, resource, actions, auth, public: publicActions } = route as Record<string, unknown>;
   if (!isPath(prefix)) {
     throw fail("`route.prefix` must be a string starting with \"/\"");
   }
   if (resource !== undefined && typeof resource !== "boolean") {
     throw fail("`route.resource` must be a boolean");
   }
-  if (actions === undefined) {
-    return;
+  if (auth !== undefined && typeof auth !== "boolean") {
+    throw fail("`route.auth` must be a boolean");
   }
-  if (typeof actions !== "object" || actions === null || Array.isArray(actions)) {
+  if (
+    actions !== undefined &&
+    (typeof actions !== "object" || actions === null || Array.isArray(actions))
+  ) {
     throw fail("`route.actions` must be an object");
   }
 
   const proto = (controller as { prototype: Record<string, unknown> }).prototype;
-  for (const [method, def] of Object.entries(actions as object)) {
+  for (const [method, def] of Object.entries(actions ?? {})) {
     if (typeof proto[method] !== "function") {
       throw fail(`action "${method}" is not a controller method`);
     }
@@ -98,6 +108,24 @@ export function validateController(controller: unknown): asserts controller is C
     }
     if (!isPath(path)) {
       throw fail(`action "${method}" has an invalid path: ${JSON.stringify(path)}`);
+    }
+  }
+
+  if (publicActions === undefined) {
+    return;
+  }
+  if (!Array.isArray(publicActions) || !publicActions.every((a) => typeof a === "string")) {
+    throw fail("`route.public` must be an array of method names");
+  }
+  if (auth !== true) {
+    throw fail("`route.public` requires `route.auth: true`");
+  }
+  for (const action of publicActions as string[]) {
+    const routed =
+      Object.hasOwn(actions ?? {}, action) ||
+      (resource === true && Object.hasOwn(RESOURCE_ACTIONS, action));
+    if (!routed || typeof proto[action] !== "function") {
+      throw fail(`public action "${action}" is not a route of this controller`);
     }
   }
 }
