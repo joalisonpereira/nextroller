@@ -10,5 +10,7 @@ export const { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS } = createHandler({
   middlewares: [LoggerMiddleware],
   authenticate: async (request) =>
     new UsersService().findByToken(request.headers.get("authorization")),
-  onError: (error) => console.error(error),
+  onError: error => {
+    console.error(error)
+  }
 });
